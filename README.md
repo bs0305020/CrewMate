@@ -1,160 +1,210 @@
-# CrewMate 🏗️
+# CrewMate
 
-**클라우드 기반 AI 건설현장 작업조 자동 편성 및 실시간 인력 재배치 플랫폼**
-
-> 부산대학교 클라우드 AI PBL 프로젝트 · 100% AWS 서버리스 · 6일 스프린트
-
-수기 장부와 새벽 전화에 의존하던 건설 일용직 인력 중개를 클라우드로 전환합니다. AI가 출근 신뢰도·기능 수준·근접성·비용을 종합해 현장별 최적 작업조를 자동 편성하고, 노쇼로 결원이 발생하면 배달 플랫폼의 배차 이벤트처럼 실시간으로 대체 인력을 매칭하는 **B2B2C SaaS**입니다.
+건설 일용직 인력 중개를 디지털화하는 서버리스 AI 플랫폼.
+인력사무소의 전화·종이 기반 작업조 편성을 **상태 기반 배치 시스템 + Crew Composition Agent**로 대체한다.
 
 ---
 
-## 📌 문제 정의
+## 1. 문제와 솔루션
 
-건설 일용직 시장은 대표적인 디지털 사각지대입니다.
+한국 건설 일용직 시장에서 인력사무소는 매일 새벽 전화로 근로자를 모으고, 수기로 조를 짜고, 노쇼가 발생하면 급하게 대체 인력을 수소문한다. CrewMate는 이 과정을 다음 세 가지로 대체한다.
 
-- **노쇼·탈주로 인한 공정 차질** — 당일 아침 결원 확인 후 전화로 수소문하는 데 수 시간 소요. 작업조 단위 공정(형틀목공 4인 1조 등)은 1명의 공백으로 하루 전체가 지연
-- **경력의 비축적성** — 아무리 성실히 일해도 증명할 공식 기록이 남지 않아, 성실함이 임금·기회로 연결되지 않음
-- **출결·임금 분쟁** — 수기 출역일보 기반 관리로 "일했다/안 했다" 분쟁이 잦고, 임금 체불 시 근로자가 근거 자료를 확보하기 어려움
+1. **상태 기반 인력 풀** — 근로자가 대기 버튼을 누르면 `READY` 상태가 되어 편성 후보로 조회된다.
+2. **Crew Composition Agent** — 건설사 요청 조건(직종·인원·예산·우선순위)과 READY 후보를 종합 평가해 **팀 단위 조합**을 추천한다. 인력사무소가 승인해야만 실제 배정된다 (Human-in-the-Loop).
+3. **긴급 재편성** — 노쇼/이탈 발생 시 **동일한 Agent**를 EMERGENCY 모드로 재호출한다. 남은 팀원은 고정하고, READY 후보 중 팀 전체 조합이 가장 좋아지는 인원을 추천한다.
 
-기존 인력 매칭 앱은 "공고 게시 → 개별 지원" 게시판 모델에 머물러 **작업조(팀) 편성** 개념과 **노쇼 실시간 대응** 체계가 없습니다. 또한 노쇼 이력을 감점·공유하는 블랙리스트 방식은 **근로기준법 제40조(취업 방해 금지)** 위반 소지가 있어 채택할 수 없습니다.
+핵심 차별점: 개인 점수 랭킹이 아니라 **기존 팀 + 후보의 조합**을 평가하는 팀 단위 편성.
 
-## 💡 핵심 설계 철학: "감점이 아니라 적립"
+---
 
-- 노쇼 페널티·블랙리스트 대신, 검증된 출근과 작업 완수만 GitHub 잔디처럼 쌓이는 **포지티브 성실 이력** 시스템
-- 노쇼 위험은 개인 낙인이 아니라 AI가 산출하는 **작업조 단위 안정성 점수**로 흡수 — 개인 출근 확률 예측값은 외부에 절대 비공개(내부 변수)
-- 모든 매칭 결과에 **사유 설명(XAI)** 제공으로 알고리즘 투명성 확보
-- 성실한 근로자가 우선 매칭·긴급 배차 보너스 우선권을 받는 선순환 구조
+## 2. 사용자 역할
 
-## 👥 역할 및 서비스 플로우
+| 역할 | 설명 | 주요 기능 |
+|---|---|---|
+| `WORKER` | 인력사무소에 등록한 근로자 | 지원서 등록, 대기 시작/취소, 배정 확인 |
+| `OFFICE` | 근로자 풀을 관리하고 작업조를 편성 | 후보 조회, 수동/Agent 편성, 승인, 긴급 재편성 |
+| `COMPANY` | 현장 인력을 요청하는 건설사 | 인력 요청 생성, 확정 작업조 확인, 결원 등록 |
 
-| 역할 | 하는 일 |
-|---|---|
-| 🧑‍🔧 **근로자** | 인력사무소에 지원(잡코리아식) → 대기 풀 등록 → 배정 수락 → GPS 지오펜스 출퇴근 → 출근 잔디 적립, 긴급 배차 푸시 수락 |
-| 🏢 **인력사무소** | 근로자 풀 승인·관리, 레거시 엑셀 CSV 이관, 건설사 공고 수주, **AI 작업조 편성 실행·검토**, 긴급 보너스 승인 |
-| 🏗️ **건설사(현장)** | 공고 게시(직종·인원·기간 + 우선순위 가중치), 편성안 확정, 출결 승인, 결원 시 보너스 제시, 일일 리포트 확인 |
+---
 
-```
-근로자 ──지원──▶ 인력사무소(대기 풀)          건설사 ──공고 게시(가중치 설정)
-                     │      ◀──────수주(지원)──────┘
-                     ▼
-             AI 작업조 편성 (M1 출근확률 + M2 최적화)
-                     │ 상위 3안 + 매칭 사유(XAI)
-                     ▼
-          건설사 확정 → 근로자 통보·수락 → GPS 지오펜스 출결 → 잔디 적립
-                     │
-             (노쇼 감지 시) 보너스 합의 → M3 랭킹 → 순차 푸시 배차 → 실시간 작업조 갱신
-```
+## 3. 핵심 흐름
 
-## ✨ 핵심 기능
+```text
+근로자 지원서 등록
+    → state = INACTIVE
+근로자 대기 버튼
+    → state = READY
+건설사 인력 요청 생성
+    → 인력사무소 요청 확인
+수동 편성  또는  Crew Composition Agent 자동 편성 (NORMAL 모드)
+    → 인력사무소 승인 클릭
+    → READY 상태 재검증 (조건부 쓰기)
+    → state = RESERVED
+    → 배차 완료
+    → state = RUNNING
 
-1. **클라우드 중앙 인력 정보 관리** — 근로자 프로필·출결·이력을 중앙 DB로 관리, 레거시 엑셀/수기 데이터 CSV 임포트
-2. **AI 작업조 자동 편성** — 가중치 슬라이더(비용/숙련/근접/안정성) 또는 자연어 요청 → 제약 만족 상위 3개 조합 + 매칭 사유 제시
-3. **실시간 결원 감지·긴급 배차** — 출근 마감까지 미출근 감지 → 보너스 합의 → 기대 충원 성공률 순 랭킹 → 순차 푸시 → 수락 즉시 작업조 갱신
-4. **GPS 지오펜스 출결 + 출근 잔디** — 진입/이탈 이벤트 + 관리자 승인으로 출결 확정, 성실 이력을 잔디·스트릭·배지로 시각화
-5. **생성형 AI 운영 어시스턴트** — 자연어 공고 파싱, 매칭 사유 생성, 일일 운영 리포트 자동 생성
-
-## 🧠 AI/ML 엔진
-
-| # | 엔진 | 문제 유형 | 모델/기법 | 서빙 |
-|---|---|---|---|---|
-| M1 | 출근 확률 예측 | 이진 분류 | XGBoost | SageMaker Serverless Endpoint |
-| M2 | 작업조 편성 최적화 | 제약 조합 최적화 + ML 스코어링 | 가중 목적함수 + Greedy/Local Search (확장: OR-Tools CP-SAT) | Lambda |
-| M3 | 긴급 배차 수락확률 랭킹 | 이진 분류 + 랭킹 | XGBoost / Logistic Regression | SageMaker Endpoint |
-| M4 | 생성형 AI 어시스턴트 | NL 파싱·설명·요약 | Amazon Bedrock (Claude) | Lambda 경유 |
-
-```
-Score(작업조) = w₁·숙련 + w₂·비용 + w₃·근접 + w₄·안정성(Π P(출근))   (Σw = 1)
-기대 충원 성공률 = P(수락 | 거리·시간대·보너스·수락이력·가용성) × 도착 가능성(ETA)
+[노쇼 / 중도 이탈]
+    → Gap Event 생성
+    → 기존 정상 팀원 RUNNING 유지 (fixed_members)
+    → READY 후보 조회
+    → 동일 Agent 재호출 (EMERGENCY 모드)
+    → 긴급 작업조 추천
+    → 인력사무소 승인 (READY 재검증 → RESERVED)
+    → 대체 인력 RUNNING, 작업조 갱신
 ```
 
-## 🏛️ 아키텍처 (100% Serverless)
+### 근로자 상태 머신
 
-```
-Users(3 roles) → CloudFront → S3(React SPA)
-                    │
-                 Cognito ──── API Gateway (REST + WebSocket)
-                                   │
-        ┌──────────────────────────┼─────────────────────────────┐
-        ▼                          ▼                             ▼
-  Lambda Core API         Lambda 편성 엔진(M2)          Step Functions 긴급 배차
-  (CRUD·공고·승인)         └→ SageMaker(M1)              ├→ SageMaker(M3) 랭킹
-        │                                                ├→ SQS 순차 큐 → SNS 푸시
-        ▼                                                └→ WebSocket 실시간 반영
-  Aurora Serverless v2 (PostgreSQL + PostGIS)    DynamoDB (배차 상태·위치 캐시)
-
-  Amazon Location Service(지오펜스) → EventBridge → 출결 확정 / 결원 감지 Lambda
-  Amazon Bedrock(Claude): 자연어 파싱 · XAI 매칭 사유 · 일일 리포트
-  S3 Data Lake → SageMaker Training → Model Registry → Serverless Endpoint (MLOps 루프)
+```text
+               대기 시작              승인(조건부 쓰기)        배차 완료
+INACTIVE ──────────────▶ READY ──────────────────▶ RESERVED ─────────▶ RUNNING
+   ▲                       ▲                          │                   │
+   │                       └──── 배차 취소/실패 ───────┘                   │
+   └─────────────────────────────── 작업 종료 ────────────────────────────┘
 ```
 
-> 상세 아키텍처는 `docs/architecture.drawio` 참고 (AI 에이전트 A: 편성 오케스트레이션 / B: 긴급 배차 판단)
+중복 배치 방지 규칙:
 
-## 🛠️ 기술 스택
+- 신규 편성 후보는 `READY` 상태만 사용한다.
+- 승인 순간 `state == READY` 조건부 쓰기로 `RESERVED` 전환. 조원 전체를 `TransactWriteItems`로 원자 처리한다.
+- 한 명이라도 조건 실패 시 전체 승인을 중단하고 `STATE_CONFLICT`를 반환한다.
+
+---
+
+## 4. 시스템 아키텍처 (100% 서버리스)
+
+```text
+React SPA (S3 + CloudFront)
+        │
+     Cognito (시드 데모 계정 3종)
+        │
+   API Gateway REST
+        │
+   ├─ Core Lambda (worker / company / office / assignment / notification)
+   └─ Agent Invoke Lambda
+           │
+     Crew Composition Agent (Strands Agents SDK + Amazon Bedrock)
+           │  Tools: get_request_detail / get_ready_workers /
+           │         get_worker_history / get_current_crew
+           ▼
+     DynamoDB 단일 테이블 (CrewMate)
+           │
+      EventBridge ─▶ Gap Event Lambda / Notification Lambda
+```
+
+사용하지 않는 것: EC2, ECS, SageMaker, 별도 ML 모델, GPS 지오펜스, Amazon Location Service, WebSocket(P0는 폴링).
+
+AI 구성 요소는 **Crew Composition Agent 1개**뿐이며, 모든 상태 변경은 인증된 사용자 요청을 받은 Lambda가 수행한다. Agent는 조회·추천만 한다.
+
+---
+
+## 5. 데이터 모델 — DynamoDB 단일 테이블
+
+테이블 1개(`CrewMate`)에 모든 엔터티를 `item_type`으로 구분해 저장한다.
+건설사별 물리 테이블을 만들지 않는다.
+
+| 엔터티 | PK | SK | GSI1PK / GSI1SK |
+|---|---|---|---|
+| Worker | `WORKER#{worker_id}` | `PROFILE` | `OFFICE#{office_id}` / `STATE#{state}#W#{worker_id}` |
+| Work Request | `REQ#{request_id}` | `META` | `OFFICE#{office_id}` / `REQ#{status}#{request_id}` |
+| Crew(추천 포함) | `CREW#{crew_id}` | `META` | `OFFICE#{office_id}` / `CREW#{status}#{crew_id}` |
+| Gap Event | `GAP#{event_id}` | `META` | `OFFICE#{office_id}` / `GAP#{status}#{event_id}` |
+| Notification | `USER#{user_id}` | `NOTI#{created_at}#{id}` | — |
+| Collaboration | `WORKER#{worker_id}` | `COLLAB#{other_id}#{date}` | — |
+
+- **GSI1** 하나로 "이 사무소의 READY 후보 / 요청 목록 / 작업조 목록"을 모두 조회한다.
+- **GSI2** (`COMPANY#{company_id}` / `REQ#{request_id}`)로 건설사 자기 요청 목록을 조회한다.
+- 상태 전환은 항상 `ConditionExpression`(예: `state = READY`) 기반 조건부 쓰기로 수행한다.
+
+### Worker 핵심 속성
+
+```json
+{
+  "worker_id": "UUID",
+  "name": "홍길동",
+  "phone": "010-....",
+  "office_id": "OFFICE001",
+  "state": "READY",
+  "trade": "FORMWORK",
+  "skill_level": 4,
+  "career_years": 7,
+  "age": 42,
+  "region": "BUSAN_HAEUNDAE",
+  "desired_daily_wage": 170000,
+  "certifications": ["비계기능사"],
+  "completed_count": 48,
+  "no_show_count": 1,
+  "current_crew_id": null,
+  "state_changed_at": "...",
+  "created_at": "...", "updated_at": "..."
+}
+```
+
+설계 원칙:
+
+- `worker_id`는 UUID. **주민등록번호는 해시 포함 어떤 형태로도 저장하지 않는다** (주민등록번호 수집 법정주의).
+- 신뢰도는 비율이 아니라 `completed_count` / `no_show_count` 원시값으로 저장하고 필요 시 계산한다.
+- 노쇼 이력 등 부정적 데이터는 인력사무소 내부 운영용으로만 사용하며, 건설사 화면·Agent 추천 사유 텍스트에 노출하지 않는다.
+- 다중 인력사무소 소속은 P1. P0는 `office_id` 단일 값.
+
+---
+
+## 6. 기술 스택
 
 | 영역 | 기술 |
 |---|---|
-| Frontend | React (반응형 — 관리자 콘솔 + 근로자 모바일 웹) |
-| Compute | AWS Lambda (Python 3.12), Step Functions |
-| API / Auth | API Gateway (REST + WebSocket), Cognito |
-| Event | EventBridge, SQS, SNS |
-| Data | Aurora Serverless v2 (PostgreSQL + PostGIS), DynamoDB, S3 |
-| AI/ML | SageMaker (Serverless Inference), Bedrock (Claude), XGBoost, scikit-learn, pandas, Faker |
-| Location | Amazon Location Service (지오펜스) |
-| DevOps | AWS SAM, GitHub Actions, CloudFront, CloudWatch |
-| 개발 도구 | Kiro (Spec-driven), Claude Code, draw.io, Figma |
+| Frontend | React SPA, S3 + CloudFront |
+| Auth | Amazon Cognito (시드 계정) |
+| API | Amazon API Gateway REST |
+| Compute | AWS Lambda (Python) |
+| Agent | Strands Agents SDK + Amazon Bedrock |
+| DB | Amazon DynamoDB (단일 테이블) |
+| Event | Amazon EventBridge |
+| IaC | AWS SAM |
+| 알림 | DynamoDB 인앱 알림 + 프론트 폴링 (P0) |
 
-## 📊 Mock 데이터 (Faker · seed=42)
+---
 
-| 데이터셋 | 규모 | 용도 |
+## 7. 레포 구조
+
+```text
+CrewMate/
+├── frontend/            # C 담당 — React SPA (worker/office/company 화면)
+├── backend/
+│   ├── functions/       # A 담당 — worker_api / company_request / office_core /
+│   │                    #          assignment / notification
+│   │   ├── agent_invoke/    # B 담당
+│   │   └── gap_event/       # B 담당
+│   └── shared/          # A 담당 — db / auth / schemas / state
+├── agent/               # B 담당 — crew_agent.py / system_prompt.md / tools/
+├── scripts/seed/        # A 담당 — 시드 및 데모 시나리오 데이터
+├── tests/
+├── template.yaml        # A 담당 — SAM
+└── README.md
+```
+
+---
+
+## 8. 팀 구성 (3인)
+
+| 담당 | 영역 | 산출물 |
 |---|---|---|
-| 근로자 프로필 | 800명 | 직종 10종·기능등급·자격·부산권 거주 좌표 |
-| 현장 | 20곳 | 부산권 좌표·공정 캘린더·지오펜스 |
-| 출결 이력 | 90일 × 배정 건 | 성실도 잠재변수 기반 노쇼 주입 → M1 학습 라벨 |
-| 배차 응답 이력 | 500건 | 거리·보너스·시간대 시나리오 → M3 학습 라벨 |
-| 협업 이력 | 파생 | 동일 작업조 공동 투입 기록 → XAI 근거 |
+| **A — 플랫폼/백엔드** | SAM, DynamoDB, Cognito, 코어 API 5종, 상태머신·조건부 쓰기, 시드 스크립트 | `PRD_A_BACKEND.md` |
+| **B — Agent/이벤트** | Crew Composition Agent, Agent Invoke Lambda, 응답 검증·폴백, Gap Event Lambda | `PRD_B_AGENT.md` |
+| **C — 프론트엔드/데모** | 3역할 React 화면, 폴링, 노쇼 시뮬레이션, 배포, 데모 리허설 | `PRD_C_FRONTEND.md` |
 
-## 🎬 데모 시나리오
+상세 일정과 통합 지점은 `TEAM_PLAN.md` 참고.
 
-1. **AI 편성** — 건설사가 자연어 입력: *"내일 오전 7시, 형틀목공 4명 + 보통인부 2명, 비용 우선"* → 사무소 수주 → AI가 상위 3개 조합 + 매칭 사유 제시 → 확정·통보
-2. **GPS 출결** — 근로자 지오펜스 진입 체크인 → 퇴근 시 동일 지오펜스 + 관리자 승인 → 잔디 1칸 적립
-3. **긴급 배차** — 노쇼 시뮬레이션 → 결원 이벤트 → 보너스 합의 → 대체 후보 순차 푸시 → 수락 → 작업조 실시간 갱신(WebSocket) → 일일 운영 리포트 자동 생성
+---
 
-## 🗓️ 6일 개발 일정
+## 9. 최종 데모 시나리오
 
-| Day | 목표 |
-|---|---|
-| 1 | Kiro Spec 생성, 아키텍처·DB 스키마 확정, SAM 골격, AWS 계정·IAM 셋업, Mock 데이터 스크립트 착수 |
-| 2 | Aurora·DynamoDB 구축, Core API Lambda, Cognito 인증, React 골격 |
-| 3 | Mock 데이터 완성·S3 적재, M1 학습·배포, M2 편성 엔진 + 편성 API 연동 |
-| 4 | 지오펜스 출결 파이프라인, 잔디 UI, 결원 감지→M3→SQS/SNS 긴급 배차, WebSocket |
-| 5 | Bedrock 통합(파싱·XAI·리포트), 프론트–백엔드 통합, 데모 데이터 시딩 |
-| 6 | 통합 테스트, 버그 픽스, 데모 리허설, 발표 자료 |
+1. **등록과 대기** — WORKER 로그인 → 지원서 등록 → 대기 버튼 → `READY` 확인
+2. **요청과 AI 편성** — COMPANY 인력 요청 → OFFICE가 AI 자동 편성 실행 → 추천 3안 카드 확인 → 1안 승인 → 조원 `RUNNING`
+3. **노쇼와 긴급 재편성** — 작업조 A+B+C에서 C 노쇼 시뮬레이션 → Gap Event → 동일 Agent EMERGENCY 호출 → A+B+E 추천 → 승인 → E `RUNNING`, 작업조 A+B+E 갱신 → COMPANY 화면에서 변경 확인
 
-## ⚖️ 법·윤리 설계 원칙
+---
 
-- 노쇼 횟수 등 네거티브 정보를 개인 단위로 표시하거나 사업장 간 공유하지 않음 (근로기준법 제40조 준수)
-- 개인 출근 확률 예측값은 작업조 안정성 산출용 내부 변수로만 사용, 개인별 비공개
-- 근로자는 본인 데이터 열람·정정 가능, 수집·이용은 명시적 동의 기반 (개인정보보호법 준수)
-- 매칭 결과에 사유 설명(XAI) 제공
+## 10. Out of Scope (현재 버전)
 
-## 🚫 Out of Scope (6일 데모 범위 제외)
-
-결제·임금 정산 / 실제 근로계약 체결 / 실데이터 연동 / 네이티브 모바일 앱(모바일 웹으로 대체) — 확장 로드맵으로만 명시
-
-## 👨‍👩‍👦 팀
-
-**팀명: 강준호** (부산대학교)
-
-| 이름 | 역할 | 담당 |
-|---|---|---|
-| 강범수 | PM / AI·ML 리드 | 일정·범위 관리, Mock 데이터 설계, M1·M4 학습, M2 편성 엔진, 데모 시나리오 총괄 |
-| 전 준 | 백엔드 | Core API(Lambda), DB 스키마 설계, Cognito 연동, API 명세 관리 |
-| 문수호 | 클라우드 인프라 / 데이터 / GenAI | AWS 인프라·IAM, EventBridge/SQS/SNS 파이프라인, Location Service, CI/CD, DynamoDB, Bedrock 프롬프트, 발표 자료 |
-
-## 📚 참고 자료
-
-- 근로기준법 제40조(취업 방해의 금지), 개인정보 보호법, 직업안정법
-- 건설근로자공제회 「건설근로자 종합생활 실태조사」
-- AWS 공식 문서: SageMaker, Bedrock, Location Service(Geofencing), EventBridge, Step Functions
-- 우아한형제들 기술 블로그 — 배달 배차(디스패치) 시스템 아키텍처
-- GitHub Contribution Graph(잔디) UX
+GPS 지오펜스 출결, 출근 잔디 그래프, 출근/노쇼 확률 예측 ML, SageMaker, 개인별 위험 점수, 자동 급여 정산, 전자 근로계약, SMS/푸시 필수 연동, 사무소 간 경쟁 입찰, Agent 자동 승인.
