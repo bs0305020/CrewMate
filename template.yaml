@@ -1,0 +1,279 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CrewMate - 건설 일용직 작업조 편성 서버리스 백엔드 (담당자 A).
+  DynamoDB 단일 테이블 + Cognito + API Gateway + 코어 Lambda 5종.
+
+# ---------------------------------------------------------------------------
+# 파라미터
+# ---------------------------------------------------------------------------
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: 배포 스테이지
+
+# ---------------------------------------------------------------------------
+# 전역 설정 (모든 Lambda 공통)
+# ---------------------------------------------------------------------------
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 15
+    MemorySize: 256
+    Architectures: [x86_64]
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref CrewMateTable
+        POWERTOOLS_SERVICE_NAME: crewmate
+        LOG_LEVEL: INFO
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: "'*'"
+
+Resources:
+  # -------------------------------------------------------------------------
+  # DynamoDB 단일 테이블 (공유 계약 1.4)
+  #   PK/SK + GSI1(OFFICE 기준) + GSI2(COMPANY 기준)
+  # -------------------------------------------------------------------------
+  CrewMateTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "CrewMate-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+        - AttributeName: GSI2PK
+          AttributeType: S
+        - AttributeName: GSI2SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI2
+          KeySchema:
+            - AttributeName: GSI2PK
+              KeyType: HASH
+            - AttributeName: GSI2SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+
+  # -------------------------------------------------------------------------
+  # Cognito User Pool (F-A1)
+  #   custom claim: role / office_id / company_id
+  # -------------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "CrewMate-${Stage}"
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: false
+      Schema:
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          StringAttributeConstraints:
+            MinLength: "0"
+            MaxLength: "16"
+        - Name: office_id
+          AttributeDataType: String
+          Mutable: true
+          StringAttributeConstraints:
+            MinLength: "0"
+            MaxLength: "64"
+        - Name: company_id
+          AttributeDataType: String
+          Mutable: true
+          StringAttributeConstraints:
+            MinLength: "0"
+            MaxLength: "64"
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "CrewMate-${Stage}-web"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 12
+      IdTokenValidity: 12
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+
+  # -------------------------------------------------------------------------
+  # API Gateway (REST) + Cognito Authorizer
+  # -------------------------------------------------------------------------
+  CrewMateApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "CrewMate-${Stage}"
+      StageName: !Ref Stage
+      Auth:
+        DefaultAuthorizer: CognitoAuth
+        Authorizers:
+          CognitoAuth:
+            UserPoolArn: !GetAtt UserPool.Arn
+        AddDefaultAuthorizerToCorsPreflight: false
+
+  # -------------------------------------------------------------------------
+  # 코어 Lambda 5종
+  #   CodeUri=backend/ 로 shared 패키지를 함께 번들, Handler는 dotted path.
+  # -------------------------------------------------------------------------
+  WorkerApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crewmate-worker-api-${Stage}"
+      CodeUri: backend/
+      Handler: functions.worker_api.app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CrewMateTable
+      Events:
+        CreateApplication:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /worker/application, Method: post }
+        UpdateApplication:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /worker/application, Method: put }
+        GetMe:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /worker/me, Method: get }
+        StateReady:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /worker/state/ready, Method: post }
+        StateInactive:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /worker/state/inactive, Method: post }
+        GetAssignments:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /worker/assignments, Method: get }
+
+  CompanyRequestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crewmate-company-request-${Stage}"
+      CodeUri: backend/
+      Handler: functions.company_request.app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CrewMateTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: default
+      Events:
+        CreateRequest:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /company/requests, Method: post }
+        UpdateRequest:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: "/company/requests/{requestId}", Method: put }
+        ListRequests:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /company/requests, Method: get }
+        GetRequest:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: "/company/requests/{requestId}", Method: get }
+        CreateGapEvent:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: "/company/crews/{crewId}/gap-events", Method: post }
+
+  OfficeCoreFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crewmate-office-core-${Stage}"
+      CodeUri: backend/
+      Handler: functions.office_core.app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CrewMateTable
+      Events:
+        ListWorkers:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /office/workers, Method: get }
+        CreateManualCrew:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /office/crews/manual, Method: post }
+
+  AssignmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crewmate-assignment-${Stage}"
+      CodeUri: backend/
+      Handler: functions.assignment.app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CrewMateTable
+      Events:
+        ApproveCrew:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: "/office/crews/{crewId}/approve", Method: post }
+        ApproveEmergency:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: "/office/emergency/{eventId}/approve", Method: post }
+
+  NotificationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crewmate-notification-${Stage}"
+      CodeUri: backend/
+      Handler: functions.notification.app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CrewMateTable
+      Events:
+        ListNotifications:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /notifications, Method: get }
+
+# ---------------------------------------------------------------------------
+# 출력값 (프론트/시드 스크립트/팀원 연동용)
+# ---------------------------------------------------------------------------
+Outputs:
+  ApiUrl:
+    Description: API Gateway 엔드포인트
+    Value: !Sub "https://${CrewMateApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+  TableName:
+    Description: DynamoDB 단일 테이블 이름
+    Value: !Ref CrewMateTable
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
