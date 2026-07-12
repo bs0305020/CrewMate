@@ -27,6 +27,8 @@ from shared.db import (
     TABLE_NAME,
     crew_gsi1sk,
     crew_pk,
+    gap_gsi1sk,
+    gap_pk,
     get_client,
     get_item,
     put_item,
@@ -37,8 +39,15 @@ from shared.db import (
 )
 from shared.responses import ApiError, ErrorCode, success
 from shared.routing import Router
-from shared.schemas import build_notification, crew_view, now_iso
-from shared.state import CrewStatus, RequestStatus, Role, WorkerState
+from shared.schemas import (
+    build_notification,
+    crew_view,
+    gap_view,
+    now_iso,
+    parse_body,
+    require_fields,
+)
+from shared.state import CrewStatus, GapStatus, RequestStatus, Role, WorkerState
 
 logger = logging.getLogger()
 router = Router()
@@ -343,6 +352,209 @@ def approve_crew(_event: dict[str, Any], principal: Principal, params: dict[str,
 
     updated_crew = get_item(crew_pk(crew_id), META_SK)
     return success(crew_view(updated_crew))
+
+
+# ---------------------------------------------------------------------------
+# 긴급 재편성 전용 엔트리 빌더 및 로직
+# ---------------------------------------------------------------------------
+def _worker_inactive_entry(worker_id: str, now: str) -> dict[str, Any]:
+    """이탈자(노쇼 등)를 INACTIVE 로 전환하고 current_crew_id 를 비운다 (무조건, 멱등)."""
+    return {
+        "Update": {
+            "TableName": TABLE_NAME,
+            "Key": {"PK": _ser(worker_pk(worker_id)), "SK": _ser(PROFILE_SK)},
+            "UpdateExpression": (
+                "SET #s = :i, GSI1SK = :gsi, current_crew_id = :null, "
+                "state_changed_at = :t, updated_at = :t"
+            ),
+            "ExpressionAttributeNames": {"#s": "state"},
+            "ExpressionAttributeValues": {
+                ":i": _ser(WorkerState.INACTIVE),
+                ":gsi": _ser(worker_gsi1sk(WorkerState.INACTIVE, worker_id)),
+                ":null": _ser(None),
+                ":t": _ser(now),
+            },
+        }
+    }
+
+
+def _crew_set_members_entry(crew_id: str, member_ids: list[str], now: str) -> dict[str, Any]:
+    """RUNNING 작업조의 member_ids 를 새 조합으로 갱신한다 (상태는 RUNNING 유지)."""
+    return {
+        "Update": {
+            "TableName": TABLE_NAME,
+            "Key": {"PK": _ser(crew_pk(crew_id)), "SK": _ser(META_SK)},
+            "UpdateExpression": "SET member_ids = :m, updated_at = :t",
+            "ConditionExpression": "#s = :running",
+            "ExpressionAttributeNames": {"#s": "status"},
+            "ExpressionAttributeValues": {
+                ":m": _ser(member_ids),
+                ":running": _ser(CrewStatus.RUNNING),
+                ":t": _ser(now),
+            },
+        }
+    }
+
+
+def activate_replacements(
+    *,
+    replacement_ids: list[str],
+    leaver_ids: list[str],
+    crew_id: str,
+    request_id: str,
+    new_roster: list[str],
+    event_id: str,
+    now: str | None = None,
+) -> None:
+    """긴급 재편성: 대체 인력만 READY → RESERVED → RUNNING 전환한다.
+
+    기존 정상 팀원은 건드리지 않는다. 이탈자는 INACTIVE 처리하고,
+    Crew.member_ids 를 새 조합으로 갱신하며 GapEvent 를 FILLED 로 마친다.
+    모든 마무리 처리는 하나의 트랜잭션으로 원자 실행한다.
+    """
+    now = now or now_iso()
+
+    # 1단계: 대체 인력 READY → RESERVED (원자)
+    reserve_items = [
+        _worker_transition_entry(
+            mid, to_state=WorkerState.RESERVED, from_state=WorkerState.READY, now=now
+        )
+        for mid in replacement_ids
+    ]
+    try:
+        _run_transaction(reserve_items)
+    except ClientError as exc:
+        if _is_conflict(exc):
+            raise ApiError(
+                ErrorCode.STATE_CONFLICT,
+                "대체 인력의 상태가 변경되어 긴급 배차를 완료할 수 없습니다.",
+            )
+        raise
+
+    # 2단계: 대체 인력 RESERVED → RUNNING + 이탈자 INACTIVE + Crew 갱신 + GapEvent FILLED (원자)
+    finalize_items = [
+        _worker_transition_entry(
+            mid,
+            to_state=WorkerState.RUNNING,
+            from_state=WorkerState.RESERVED,
+            now=now,
+            crew_id=crew_id,
+        )
+        for mid in replacement_ids
+    ]
+    finalize_items += [_worker_inactive_entry(lid, now) for lid in leaver_ids]
+    finalize_items.append(_crew_set_members_entry(crew_id, new_roster, now))
+    finalize_items.append(
+        _status_entry(
+            gap_pk(event_id),
+            gsi1sk=gap_gsi1sk(GapStatus.FILLED, event_id),
+            to_status=GapStatus.FILLED,
+            from_statuses=[
+                GapStatus.DETECTED,
+                GapStatus.RECOMPOSING,
+                GapStatus.PROPOSED,
+                GapStatus.APPROVED,
+            ],
+            now=now,
+            extra_set={"filled_member_ids": new_roster},
+        )
+    )
+    try:
+        _run_transaction(finalize_items)
+    except ClientError as exc:
+        if _is_conflict(exc):
+            # 대체 인력 RESERVED → READY 복구 (best-effort)
+            rollback = [
+                _worker_transition_entry(
+                    mid,
+                    to_state=WorkerState.READY,
+                    from_state=WorkerState.RESERVED,
+                    now=now,
+                    clear_crew=True,
+                )
+                for mid in replacement_ids
+            ]
+            try:
+                _run_transaction(rollback)
+            except ClientError:
+                logger.exception("emergency_rollback_failed event_id=%s", event_id)
+            raise ApiError(
+                ErrorCode.STATE_CONFLICT,
+                "긴급 배차 완료 처리 중 충돌이 발생하여 예약을 취소했습니다.",
+            )
+        raise
+
+
+# ---------------------------------------------------------------------------
+# 긴급 승인 라우트
+# ---------------------------------------------------------------------------
+@router.route("POST", "/office/emergency/{eventId}/approve")
+def approve_emergency(event: dict[str, Any], principal: Principal, params: dict[str, str]):
+    principal.require_role(Role.OFFICE)
+    event_id = params["eventId"]
+
+    gap = get_item(gap_pk(event_id), META_SK)
+    if not gap:
+        raise ApiError(ErrorCode.GAP_EVENT_NOT_FOUND, "결원 이벤트를 찾을 수 없습니다.")
+    principal.require_office(gap["office_id"])
+    if gap["status"] == GapStatus.FILLED:
+        raise ApiError(ErrorCode.STATE_CONFLICT, "이미 충원이 완료된 결원 이벤트입니다.")
+
+    body = parse_body(event)
+    require_fields(body, ["replacement_member_ids"])
+    replacements = body["replacement_member_ids"]
+    if not isinstance(replacements, list) or not replacements:
+        raise ApiError(ErrorCode.CREW_INVALID, "replacement_member_ids는 비어 있을 수 없습니다.")
+    validate_members_unique(replacements)
+
+    crew = get_item(crew_pk(gap["crew_id"]), META_SK)
+    if not crew:
+        raise ApiError(ErrorCode.CREW_INVALID, "결원이 발생한 작업조를 찾을 수 없습니다.")
+    request = get_item(request_pk(gap["request_id"]), META_SK)
+    if not request:
+        raise ApiError(ErrorCode.REQUEST_NOT_FOUND, "연결된 요청을 찾을 수 없습니다.")
+
+    # 기존 팀원(고정) = 원래 조원 - 이탈자, 새 조합 = 고정 + 대체
+    leavers = gap.get("missing_worker_ids", [])
+    fixed = [m for m in crew.get("member_ids", []) if m not in leavers]
+    new_roster = fixed + replacements
+    validate_members_unique(new_roster)  # 대체 인력이 이미 조원이면 거부
+
+    # 대체 인력 검증 (동일 사무소 + READY)
+    replacement_workers = []
+    for mid in replacements:
+        w = get_item(worker_pk(mid), PROFILE_SK)
+        if not w:
+            raise ApiError(ErrorCode.WORKER_NOT_FOUND, f"근로자를 찾을 수 없습니다: {mid}")
+        replacement_workers.append(w)
+    validate_candidates(replacement_workers, office_id=gap["office_id"], require_state=WorkerState.READY)
+
+    # 새 조합 전체가 필수 직종 인원을 충족하는지 검증 (고정 팀원 포함)
+    all_members = list(replacement_workers)
+    for mid in fixed:
+        w = get_item(worker_pk(mid), PROFILE_SK)
+        if w:
+            all_members.append(w)
+    validate_required_coverage(all_members, request.get("required_workers", []))
+
+    # 긴급 배차 실행 (대체만 활성화, 이탈자 INACTIVE, Crew 갱신, GapEvent FILLED)
+    activate_replacements(
+        replacement_ids=replacements,
+        leaver_ids=leavers,
+        crew_id=gap["crew_id"],
+        request_id=gap["request_id"],
+        new_roster=new_roster,
+        event_id=event_id,
+    )
+
+    # 대체 인력에게 긴급 배정 알림 (best-effort)
+    request["crew_id"] = gap["crew_id"]
+    notify_members(
+        replacement_workers, request, kind="EMERGENCY_ASSIGNED", title="긴급 작업 배정 안내"
+    )
+
+    updated_gap = get_item(gap_pk(event_id), META_SK)
+    return success(gap_view(updated_gap))
 
 
 def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
