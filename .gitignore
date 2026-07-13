@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+packaged.yaml
+
+# 환경/시크릿
+.env
+*.local
+
+# OS/IDE
+.DS_Store
+Thumbs.db
