@@ -1,0 +1,770 @@
+{
+  "pbtResults": {
+    "1.3 출력 스키마 라운드트립 속성 테스트 작성 (`agent/tests/test_property_10_schema_roundtrip.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783856684880
+    },
+    "3.2 멤버 출처 강제 속성 테스트 (`.../agent_invoke/tests/test_property_01_member_provenance.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783857870527
+    },
+    "3.3 신규 멤버 READY 상태 속성 테스트 (`.../tests/test_property_02_new_ready.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783857873048
+    },
+    "3.4 추천안 내 중복 멤버 금지 속성 테스트 (`.../tests/test_property_03_no_duplicate.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783860421744
+    },
+    "3.8 EMERGENCY fixed_members 보존 속성 테스트 (`.../tests/test_property_07_fixed_preserved.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783861038132
+    },
+    "3.7 타 RUNNING/RESERVED 비충돌 속성 테스트 (`.../tests/test_property_06_no_conflict.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783861040376
+    },
+    "3.6 total_cost 서버 계산 일치 속성 테스트 (`.../tests/test_property_05_total_cost.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783861130381
+    },
+    "3.5 직종·인원 충족 및 추천안 개수 속성 테스트 (`.../tests/test_property_04_trade_headcount.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783861468191
+    },
+    "8.2 결원 계산 — fixed_members 속성 테스트 (`backend/functions/gap_event/tests/test_property_11_fixed_members.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783861727777
+    },
+    "3.9 검증기 건전성 속성 테스트 (`.../tests/test_property_08_soundness.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783861805171
+    },
+    "6.2 폴백 산출물 유효성 속성 테스트 (`.../tests/test_property_13_fallback_valid.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783861877417
+    },
+    "8.3 결원 계산 — 부족분·커버 속성 테스트 (`.../gap_event/tests/test_property_12_missing_coverage.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783861976160
+    },
+    "5.4 무효 출력 미저장 속성 테스트 (`.../tests/test_property_09_no_save_invalid.py`)": {
+      "status": "passed",
+      "lastRunTimestamp": 1783867158296
+    }
+  },
+  "executionHistory": {
+    "1.1 프로젝트 디렉터리 구조와 테스트 프레임워크 설정": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831254997
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831266993
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783848654415
+      }
+    ],
+    "1.2 Pydantic 입출력 스키마 구현 (`agent/schemas.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255102
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783848665981
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783849073522
+      }
+    ],
+    "1.3 출력 스키마 라운드트립 속성 테스트 작성 (`agent/tests/test_property_10_schema_roundtrip.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255128
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783850981824
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783856735589
+      }
+    ],
+    "2.1 Agent System Prompt 작성 (`agent/system_prompt.md`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255171
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783848666340
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783849074563
+      }
+    ],
+    "2.2 조회 전용 Agent Tool 4종 구현 (`agent/tools/`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255200
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783849102774
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783850605443
+      }
+    ],
+    "2.3 Crew Composition Agent 정의 구현 (`agent/crew_agent.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255235
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783856763168
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860206532
+      }
+    ],
+    "2.4 Agent 구조·프롬프트 스모크 테스트 (`agent/tests/test_agent_structure.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255260
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862219572
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864336790
+      }
+    ],
+    "3.1 검증기 컨텍스트 모델과 7종 검사 구현 (`backend/functions/agent_invoke/validator.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255285
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783849099786
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783850603590
+      }
+    ],
+    "3.2 멤버 출처 강제 속성 테스트 (`.../agent_invoke/tests/test_property_01_member_provenance.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255309
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783856765121
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860200942
+      }
+    ],
+    "3.3 신규 멤버 READY 상태 속성 테스트 (`.../tests/test_property_02_new_ready.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255335
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783856765491
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860202833
+      }
+    ],
+    "3.4 추천안 내 중복 멤버 금지 속성 테스트 (`.../tests/test_property_03_no_duplicate.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255362
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860235875
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861496524
+      }
+    ],
+    "3.5 직종·인원 충족 및 추천안 개수 속성 테스트 (`.../tests/test_property_04_trade_headcount.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255394
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860236376
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861497568
+      }
+    ],
+    "3.6 total_cost 서버 계산 일치 속성 테스트 (`.../tests/test_property_05_total_cost.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255418
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860239493
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861498541
+      }
+    ],
+    "3.7 타 RUNNING/RESERVED 비충돌 속성 테스트 (`.../tests/test_property_06_no_conflict.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255441
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860239984
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861500516
+      }
+    ],
+    "3.8 EMERGENCY fixed_members 보존 속성 테스트 (`.../tests/test_property_07_fixed_preserved.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255468
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860240414
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861501107
+      }
+    ],
+    "3.9 검증기 건전성 속성 테스트 (`.../tests/test_property_08_soundness.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255495
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861509677
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862142230
+      }
+    ],
+    "3.10 검증기 단위 테스트 — 잘못된 출력 7종 케이스 (`.../tests/test_validator_units.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255520
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861511635
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862143266
+      }
+    ],
+    "4. 체크포인트 — Agent 프로토타입·검증기 (Day 1~2 마일스톤)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255543
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864379439
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864384998
+      }
+    ],
+    "5.1 후보 조립기 및 검증 컨텍스트 스냅샷 조립기 구현 (`backend/functions/agent_invoke/assembler.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255568
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783856761172
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860204758
+      }
+    ],
+    "5.2 저장 모듈 구현 — NORMAL/EMERGENCY 저장 흐름 분리 (`backend/functions/agent_invoke/persistence.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255595
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783849103841
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783850606442
+      }
+    ],
+    "5.3 Lambda 핸들러 구현 — 라우팅·권한(외부/내부 경로 구분)·상태가드(경로별 분기)·compose_flow 1차 (`backend/functions/agent_invoke/handler.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255618
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862233586
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864334924
+      }
+    ],
+    "5.4 무효 출력 미저장 속성 테스트 (`.../tests/test_property_09_no_save_invalid.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255643
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864386022
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783867197842
+      }
+    ],
+    "5.5 실행 흐름 단위 테스트 (`.../tests/test_agent_invoke_flow.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255668
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864387988
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783867198828
+      }
+    ],
+    "6.1 데모 폴백 컴포저 구현 (`backend/functions/agent_invoke/fallback.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255694
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783849104355
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783850608413
+      }
+    ],
+    "6.2 폴백 산출물 유효성 속성 테스트 (`.../tests/test_property_13_fallback_valid.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255718
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861514798
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862146965
+      }
+    ],
+    "6.3 compose_flow에 재시도·폴백·롤백 배선 (`backend/functions/agent_invoke/handler.py` 확장)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255743
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783867211330
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783869388873
+      }
+    ],
+    "6.4 재시도·폴백 단위 테스트 (`.../tests/test_agent_invoke_retry_fallback.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255766
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783870834144
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871341084
+      }
+    ],
+    "7. 체크포인트 — NORMAL 완성·재시도·폴백 (Day 3~4 마일스톤)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255795
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871370189
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871377722
+      }
+    ],
+    "8.1 결원 계산 순수 로직 구현 (`backend/functions/gap_event/gap_logic.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255818
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783849100826
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783850957794
+      }
+    ],
+    "8.2 결원 계산 — fixed_members 속성 테스트 (`backend/functions/gap_event/tests/test_property_11_fixed_members.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255843
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861512673
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862145113
+      }
+    ],
+    "8.3 결원 계산 — 부족분·커버 속성 테스트 (`.../gap_event/tests/test_property_12_missing_coverage.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255868
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783861514643
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862146146
+      }
+    ],
+    "8.4 EMERGENCY payload 조립 구현 (`backend/functions/gap_event/emergency_payload.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255894
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783856762117
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783860205867
+      }
+    ],
+    "8.5 Gap Event Lambda 핸들러 구현 (`backend/functions/gap_event/handler.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255918
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864388180
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783867199475
+      }
+    ],
+    "8.6 Gap Event 단위 테스트 (`.../gap_event/tests/test_gap_event_handler.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255943
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783867211444
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783869389520
+      }
+    ],
+    "9.1 구조화 관측성 로그 구현 (`backend/functions/agent_invoke/observability.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255968
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783850982291
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783856735772
+      }
+    ],
+    "9.2 관측성 로그를 실행 경로에 배선 (`agent_invoke/handler.py`, `gap_event/handler.py` 확장)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831255993
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783869418562
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783870833408
+      }
+    ],
+    "9.3 관측성 로그 단위 테스트 (`.../agent_invoke/tests/test_observability.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831256018
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862218569
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864335952
+      }
+    ],
+    "9.4 통합(모킹) 테스트 (`tests/integration/test_end_to_end_mocked.py`)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831256046
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871371116
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871910404
+      }
+    ],
+    "10. 최종 체크포인트 — gap_event·관측성·통합 (Day 5~6 마일스톤)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783831256083
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871920028
+      },
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871926967
+      }
+    ],
+    "1. 프로젝트 구조와 입출력 스키마 기반 마련": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783856735620
+      }
+    ],
+    "3. Agent 출력 코드 검증기 (Day 2) — 7종 검증, 순수 함수": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783862143304
+      }
+    ],
+    "2. Crew Composition Agent 로컬 프로토타입 (Day 1)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783864336819
+      }
+    ],
+    "5. Agent Invoke Lambda — NORMAL 편성 + EMERGENCY 진입 (Day 3)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783867198869
+      }
+    ],
+    "8. Gap Event Lambda + EMERGENCY 재편성 (Day 5)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783869389546
+      }
+    ],
+    "6. 재시도 및 Bedrock 폴백 (Day 4)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871341114
+      }
+    ],
+    "9. 관측성 로그 및 통합 배선 (Day 6)": [
+      {
+        "executionId": "facbc773-a95b-423a-a5dd-93b8a1a2b230",
+        "chatSessionId": "sess_d770a1f4-c29b-449e-b1f9-03897926b416",
+        "timestamp": 1783871910443
+      }
+    ]
+  }
+}

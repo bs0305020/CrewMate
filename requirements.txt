@@ -1,0 +1,14 @@
+# Runtime dependencies for 담당자 B (Crew Composition Agent) scope.
+#
+# In deployment these are packaged as the SAM Lambda Layer `AgentDepsLayer`
+# (source: layers/agent_deps/requirements.txt) and attached to the agent_invoke +
+# gap_event functions only — NOT bundled into 담당자 A's five functions. This file
+# documents the same runtime contract for local dev/reference.
+#
+#   pydantic       - strict Agent I/O schemas + validator/context models
+#   strands-agents - Strands Agents SDK (the single Crew Composition Agent)
+#   boto3          - provided by the Lambda python3.12 runtime (and by strands-agents);
+#                    listed for local dev only.
+pydantic>=2,<3
+strands-agents
+boto3>=1.34

@@ -14,6 +14,32 @@ Parameters:
     AllowedValues: [dev, prod]
     Description: 배포 스테이지
 
+  # --- Crew Composition Agent (담당자 B) 설정 — 비밀 아님, 기본값 커밋 가능 ---
+  CrewAgentModelId:
+    Type: String
+    Default: apac.anthropic.claude-sonnet-4-6
+    Description: >
+      Amazon Bedrock 모델 ID. Claude Sonnet 4.6 은 교차 리전 추론 프로파일(inference profile)로만
+      호출되므로 지역 프리픽스가 붙은 프로파일 ID 를 지정한다 (ap-northeast-2 배포 → apac.*,
+      us-* 배포 → us.anthropic.claude-sonnet-4-6). Bedrock 모델 액세스는 배포자가 직접 활성화한다.
+  CrewAgentRegion:
+    Type: String
+    Default: ap-northeast-2
+    Description: >
+      Bedrock 호출 리전 (CREW_AGENT_REGION). 추론 프로파일의 지역과 일치해야 한다. 비우면 Lambda
+      자신의 AWS_REGION 을 사용한다.
+  AgentFallbackEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Bedrock 실패/지연 시 사전 준비된 데모 추천으로 폴백할지 여부 (AGENT_FALLBACK_ENABLED).
+      데모 안정성용 — 시연 시 "true" 로 배포할 수 있다.
+  AgentInvokeTimeoutSeconds:
+    Type: String
+    Default: "25"
+    Description: 단일 Bedrock compose 호출의 벽시계 상한(초) (AGENT_INVOKE_TIMEOUT_S).
+
 # ---------------------------------------------------------------------------
 # 전역 설정 (모든 Lambda 공통)
 # ---------------------------------------------------------------------------
@@ -261,6 +287,96 @@ Resources:
           Type: Api
           Properties: { RestApiId: !Ref CrewMateApi, Path: /notifications, Method: get }
 
+  # -------------------------------------------------------------------------
+  # Crew Composition Agent 스택 (담당자 B)
+  #   - AgentDepsLayer: pydantic + strands-agents (A의 5개 함수엔 부착하지 않음)
+  #   - AgentInvokeFunction: NORMAL(ComposeRequested EventBridge) + EMERGENCY(내부 invoke)
+  #   - GapEventFunction: GapEventDetected EventBridge 컨슈머 → agent_invoke 동기 invoke
+  #   두 함수 모두 API Gateway 라우트가 없다(이벤트/내부 invoke 트리거).
+  # -------------------------------------------------------------------------
+  AgentDepsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "crewmate-agent-deps-${Stage}"
+      Description: pydantic + strands-agents for 담당자 B's agent Lambdas
+      ContentUri: layers/agent_deps/
+      CompatibleRuntimes: [python3.12]
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.12
+
+  AgentInvokeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crewmate-agent-invoke-${Stage}"
+      CodeUri: backend/
+      Handler: functions.agent_invoke.app.lambda_handler
+      # Bedrock compose (up to 2 attempts × AGENT_INVOKE_TIMEOUT_S) + assembly/validation.
+      Timeout: 60
+      MemorySize: 512
+      Layers:
+        - !Ref AgentDepsLayer
+      Environment:
+        Variables:
+          CREW_AGENT_MODEL_ID: !Ref CrewAgentModelId
+          CREW_AGENT_REGION: !Ref CrewAgentRegion
+          AGENT_FALLBACK_ENABLED: !Ref AgentFallbackEnabled
+          AGENT_INVOKE_TIMEOUT_S: !Ref AgentInvokeTimeoutSeconds
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CrewMateTable
+        # Bedrock InvokeModel on foundation models + cross-Region inference profiles.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/*"
+                - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*"
+      Events:
+        # NORMAL trigger: an OFFICE-authorized 담당자 A route publishes this when a
+        # WorkRequest is ready for AI composition (see agent_invoke/handler.py contract).
+        ComposeRequested:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source: ["crewmate.office"]
+              detail-type: ["ComposeRequested"]
+
+  GapEventFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crewmate-gap-event-${Stage}"
+      CodeUri: backend/
+      Handler: functions.gap_event.app.lambda_handler
+      # Synchronously invokes AgentInvokeFunction (RequestResponse), which itself may take up
+      # to ~2×AGENT_INVOKE_TIMEOUT_S, so this must comfortably exceed AgentInvoke's timeout.
+      Timeout: 120
+      MemorySize: 256
+      Layers:
+        - !Ref AgentDepsLayer
+      Environment:
+        Variables:
+          AGENT_INVOKE_FUNCTION_NAME: !Ref AgentInvokeFunction
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CrewMateTable
+        # Trusted internal invoke of agent_invoke (the IAM boundary that authorizes the
+        # EMERGENCY internal path — see gap_event/handler.py).
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AgentInvokeFunction
+      Events:
+        # EMERGENCY trigger: 담당자 A's company_request publishes GapEventDetected after
+        # creating the GapEvent (DETECTED). Detail = {event_id, office_id, crew_id,
+        # request_id, gap_type, missing_worker_ids}.
+        GapEventDetected:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source: ["crewmate.company"]
+              detail-type: ["GapEventDetected"]
+
 # ---------------------------------------------------------------------------
 # 출력값 (프론트/시드 스크립트/팀원 연동용)
 # ---------------------------------------------------------------------------
@@ -277,3 +393,9 @@ Outputs:
   UserPoolClientId:
     Description: Cognito User Pool Client ID
     Value: !Ref UserPoolClient
+  AgentInvokeFunctionName:
+    Description: Crew Composition Agent invoke Lambda (EventBridge ComposeRequested + internal invoke)
+    Value: !Ref AgentInvokeFunction
+  GapEventFunctionName:
+    Description: Gap event consumer Lambda (EventBridge GapEventDetected)
+    Value: !Ref GapEventFunction

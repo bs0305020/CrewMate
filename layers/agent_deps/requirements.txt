@@ -1,0 +1,9 @@
+# Runtime dependencies for 담당자 B's Lambdas (agent_invoke + gap_event), packaged as a
+# dedicated Lambda Layer so they are NOT bundled into 담당자 A's five functions (which share
+# CodeUri=backend/ but need only boto3, already in the Lambda runtime).
+#
+# - pydantic: the strict Agent I/O schemas (agent.schemas) + validator/context models.
+# - strands-agents: the Strands Agents SDK backing the single Crew Composition Agent.
+#   (boto3 is provided by the Lambda python3.12 runtime and by strands-agents transitively.)
+pydantic>=2,<3
+strands-agents
