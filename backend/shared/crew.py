@@ -125,19 +125,25 @@ def validate_required_coverage(
 # ---------------------------------------------------------------------------
 # 조원 조립 (Assignments 조인 → CrewMember 리스트)
 # ---------------------------------------------------------------------------
-def assemble_crew_members(crew: dict[str, Any]) -> list[dict[str, Any]]:
+_GONE_STATUSES = {"DECLINED", "NO_SHOW", "LEFT_SITE", "CANCELLED"}
+
+
+def assemble_crew_members(crew: dict[str, Any], *, active_only: bool = True) -> list[dict[str, Any]]:
     """작업조의 조원 상세를 구성한다.
 
     승인 후에는 Assignments(단일 진실 원천)를 조인하고, 승인 전(DRAFT/PROPOSED)에는
     Crew.proposed_members 를 근로자 프로필과 조인한다.
+
+    - active_only=True(기본): 편성 계산용. 거절·이탈·노쇼·취소 배치는 제외(고정 인원만).
+    - active_only=False: 화면 표시용. 거절/이탈 멤버도 acceptance/status 그대로 포함해
+      프론트가 부분 재편성·긴급 UI를 판단할 수 있게 한다.
     """
-    _GONE = {"DECLINED", "NO_SHOW", "LEFT_SITE", "CANCELLED"}
     assignments = db.query_crew_assignments(crew["crew_id"])
     if assignments:
         members = []
         for a in assignments:
-            # 거절·이탈·노쇼·취소 배치는 활성 조원 목록에서 제외 (부분 재편성)
-            if a.get("acceptance") == Acceptance.DECLINED or a.get("status") in _GONE:
+            gone = a.get("acceptance") == Acceptance.DECLINED or a.get("status") in _GONE_STATUSES
+            if active_only and gone:
                 continue
             worker = db.get_worker(a["worker_id"])
             members.append(crew_member_view(a, worker))

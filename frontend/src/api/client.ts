@@ -1,7 +1,9 @@
 import type { ApiResponse } from './types';
 
 const API_MODE = import.meta.env.VITE_API_MODE || 'mock';
-const API_URL = import.meta.env.VITE_API_URL || '';
+// API Gateway base URL (스테이지 경로 포함, 예: https://xxx.execute-api.ap-northeast-2.amazonaws.com/dev)
+// VITE_API_BASE_URL 우선, 하위호환으로 VITE_API_URL 도 허용.
+const API_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '';
 
 // mock 핸들러를 동적으로 임포트
 type MockHandler = (body?: unknown, pathParam?: string) => Promise<ApiResponse<unknown>>;

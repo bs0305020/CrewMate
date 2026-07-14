@@ -166,7 +166,7 @@ def _active_crew_view(request_id: str):
     if not crews:
         return None
     crew = sorted(crews, key=lambda c: c.get("created_at", ""))[-1]
-    members = assemble_crew_members(crew)  # worker_state 포함
+    members = assemble_crew_members(crew, active_only=False)  # 거절 멤버 포함(표시용)
     return {
         "crew_id": crew["crew_id"],
         "request_id": crew["request_id"],

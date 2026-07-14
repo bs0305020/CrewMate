@@ -136,7 +136,7 @@ def _active_crew_view(request_id: str):
     if not crews:
         return None
     crew = sorted(crews, key=lambda c: c.get("created_at", ""))[-1]
-    return crew_view(crew, assemble_crew_members(crew))
+    return crew_view(crew, assemble_crew_members(crew, active_only=False))
 
 
 @router.route("POST", "/office/requests/{requestId}/reject")

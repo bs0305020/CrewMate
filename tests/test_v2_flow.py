@@ -75,7 +75,10 @@ def test_worker_application_and_ready(tables):
     assert resp["statusCode"] == 201
     data = body_of(resp)["data"]
     assert data["state"] == "INACTIVE"
-    assert "completed_count" not in data  # 성실도는 본인 응답에 노출 금지
+    # 본인 응답: 완료 작업 수(completed_count)는 노출, 성실도 분모(dispatched_count)는 제외
+    assert data["completed_count"] == 0
+    assert "dispatched_count" not in data
+    assert "no_show_count" not in data
     assert data["preferred_trades"] == ["GENERAL"]
 
     ready = _call("functions.worker_api.app", make_event("POST", "/worker/state/ready", role="WORKER", sub="w1"))
@@ -162,6 +165,15 @@ def test_decline_creates_gap_and_returns_ready(tables):
     # DECLINED 유형 GapEvent 생성
     gaps = tables.query_office_gap_events(OFFICE)
     assert any(g["type"] == "DECLINED" for g in gaps)
+
+    # M2: 사무소 상세의 crew.members 에 거절 멤버가 acceptance=DECLINED 로 남아야
+    #     프론트가 부분 재편성 UI를 판단할 수 있다.
+    detail = _call("functions.office_core.app", make_event(
+        "GET", "/office/requests/REQ1", role="OFFICE", office_id=OFFICE, path_params={"requestId": "REQ1"}))
+    members = body_of(detail)["data"]["crew"]["members"]
+    accept_by_id = {m["worker_id"]: m["acceptance"] for m in members}
+    assert accept_by_id.get("w1") == "DECLINED"
+    assert "w2" in accept_by_id
 
 
 def test_concurrency_double_approve_conflict(tables):

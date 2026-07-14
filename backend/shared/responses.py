@@ -57,9 +57,13 @@ _STATUS_BY_CODE: dict[str, int] = {
     ErrorCode.INTERNAL_ERROR: 500,
 }
 
+import os
+
+# 성공·오류 응답 모두에 CORS 헤더를 부착한다 (오류 응답 누락이 통합 단계 최다 버그).
+# 허용 오리진은 CORS_ALLOW_ORIGIN 환경 변수로 주입(기본 "*"). 배포 시 CloudFront 오리진으로 좁힐 수 있다.
 _CORS_HEADERS = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": os.environ.get("CORS_ALLOW_ORIGIN", "*"),
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
 }

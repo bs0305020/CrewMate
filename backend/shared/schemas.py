@@ -171,22 +171,24 @@ def build_worker(
 
 
 _WORKER_INTERNAL_KEYS = frozenset({"gsi1sk"})
-_WORKER_INTEGRITY_KEYS = frozenset({"completed_count", "dispatched_count"})
+# 성실도 비율(완료/배차)의 분모는 사무소 화면 한정. 본인 응답에는 completed_count(내가 한 완료 작업 수)만
+# 노출하고 dispatched_count(배차 확정 수, 비율 계산용)는 제외한다.
+_WORKER_SELF_HIDDEN_KEYS = frozenset({"dispatched_count"})
 
 
 def worker_office_view(worker: dict[str, Any], work_history: list | None = None) -> dict[str, Any]:
-    """OFFICE 응답용: 성실도 카운트 포함, 내부 GSI 키만 제거."""
+    """OFFICE 응답용: 성실도 카운트(completed/dispatched) 포함, 내부 GSI 키만 제거."""
     view = {k: clean(v) for k, v in worker.items() if k not in _WORKER_INTERNAL_KEYS}
     view["work_history"] = clean(work_history or [])
     return view
 
 
 def worker_self_view(worker: dict[str, Any], work_history: list | None = None) -> dict[str, Any]:
-    """WORKER 본인 응답용: 성실도 카운트 제외 (인력사무소 한정 노출 규칙)."""
+    """WORKER 본인 응답용: completed_count(완료 작업 수)만 노출, dispatched_count(성실도 분모) 제외."""
     view = {
         k: clean(v)
         for k, v in worker.items()
-        if k not in _WORKER_INTERNAL_KEYS and k not in _WORKER_INTEGRITY_KEYS
+        if k not in _WORKER_INTERNAL_KEYS and k not in _WORKER_SELF_HIDDEN_KEYS
     }
     view["work_history"] = clean(work_history or [])
     return view
