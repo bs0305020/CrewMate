@@ -12,6 +12,7 @@ import type {
   Trade,
   RequiredTrade,
   Recommendation,
+  GapEvent,
 } from '../types';
 import { SEED_ACCOUNTS, SEED_OFFICES, mockState, setCurrentUserId, getCurrentUserId, registerAccount } from './state';
 
@@ -197,11 +198,15 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       const mIdx = crew.members.findIndex((m) => m.worker_id === worker.worker_id);
       if (mIdx >= 0) crew.members[mIdx].acceptance = 'DECLINED';
       crew.updated_at = now();
+      // 빈 자리(결원) 이벤트 생성 → AI/수동 재편성 경로 노출
+      createGapEvent(crew, worker.worker_id, worker.name, 'DECLINED');
+      const reqIdx = mockState.requests.findIndex((r) => r.request_id === crew.request_id);
+      if (reqIdx >= 0) mockState.requests[reqIdx] = { ...mockState.requests[reqIdx], status: 'COMPOSING', updated_at: now() };
       pushNotification('USER_OFFICE_001', 'WORKER_DECLINED', '배정 거절', `${worker.name}님이 배정을 거절했습니다. 빈 자리 재편성이 필요합니다.`);
     }
 
-    // 거절한 worker만 INACTIVE (다시 대기하려면 직접 대기 시작)
-    mockState.workers[idx] = { ...worker, state: 'INACTIVE', current_offer: null, current_crew_id: null, state_changed_at: now(), updated_at: now() };
+    // 거절한 worker는 다시 대기(READY)로 복귀 (다른 작업 배정 가능)
+    mockState.workers[idx] = { ...worker, state: 'READY', current_offer: null, current_crew_id: null, state_changed_at: now(), updated_at: now() };
 
     return { success: true, data: mockState.workers[idx] };
   },
@@ -395,10 +400,15 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       const mIdx = crew.members.findIndex((m) => m.worker_id === worker_id);
       if (mIdx >= 0) crew.members[mIdx].acceptance = 'DECLINED';
       crew.updated_at = now();
+      // 빈 자리(결원) 이벤트 생성 → AI/수동 재편성 경로 노출
+      createGapEvent(crew, worker_id, worker.name, 'UNAVAILABLE');
+      const reqIdx = mockState.requests.findIndex((r) => r.request_id === crew.request_id);
+      if (reqIdx >= 0) mockState.requests[reqIdx] = { ...mockState.requests[reqIdx], status: 'COMPOSING', updated_at: now() };
+      pushNotification('USER_OFFICE_001', 'GAP_EVENT', '빈 자리 발생', `${worker.name}님의 제안이 취소되어 빈 자리가 발생했습니다. 재편성이 필요합니다.`);
     }
 
-    // 취소된 worker만 INACTIVE
-    mockState.workers[wIdx] = { ...worker, state: 'INACTIVE', current_offer: null, current_crew_id: null, state_changed_at: now(), updated_at: now() };
+    // 취소된 worker는 다시 대기(READY)로 복귀
+    mockState.workers[wIdx] = { ...worker, state: 'READY', current_offer: null, current_crew_id: null, state_changed_at: now(), updated_at: now() };
     pushNotification(worker.user_id, 'OFFER_CANCELLED', '제안 취소', '배정 제안이 취소되었습니다.');
     return { success: true, data: mockState.workers[wIdx] };
   },
@@ -497,6 +507,14 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     // crew 취소
     crew.status = 'CANCELLED';
     crew.updated_at = now();
+
+    // 이 편성에 연결된 진행 중 결원 이벤트 종료(FAILED) — 댕글링 방지
+    for (const g of mockState.gapEvents) {
+      if (g.crew_id === crew.crew_id && ['DETECTED', 'RECOMPOSING', 'PROPOSED', 'APPROVED'].includes(g.status)) {
+        g.status = 'FAILED';
+        g.updated_at = now();
+      }
+    }
 
     // 요청 취소 + company에 취소 요청 알림
     if (request) {
@@ -961,6 +979,24 @@ function assignAnyTrade(w: Worker): Trade | null {
   if (pref) return pref;
   if (!excluded.includes('GENERAL')) return 'GENERAL';
   return ALL_TRADES.find((t) => !excluded.includes(t)) || null;
+}
+
+// 결원 이벤트 생성 (멤버 상실 시 AI/수동 재편성 경로를 열어준다).
+function createGapEvent(crew: Crew, workerId: string, workerName: string, type: GapEvent['type']): GapEvent {
+  const gapEvent: GapEvent = {
+    event_id: `GAP${String(mockState.gapEvents.length + 1).padStart(3, '0')}`,
+    crew_id: crew.crew_id,
+    request_id: crew.request_id,
+    office_id: crew.office_id,
+    type,
+    affected_worker_id: workerId,
+    affected_worker_name: workerName,
+    status: 'DETECTED',
+    created_at: now(),
+    updated_at: now(),
+  };
+  mockState.gapEvents.push(gapEvent);
+  return gapEvent;
 }
 
 function applyApplicationFields(payload: WorkerApplicationRequest) {

@@ -70,11 +70,16 @@ export default function OfficeRequestDetailPage() {
   };
 
   const handleCancelOffer = async (workerId: string, workerName: string) => {
-    if (!confirm(`${workerName}님의 제안을 취소하시겠습니까?\n취소 시 해당 근로자는 비활성(INACTIVE) 상태가 됩니다.`)) return;
+    if (!confirm(`${workerName}님의 제안을 취소하시겠습니까?\n취소 시 해당 근로자는 다시 대기 상태가 되며, 빈 자리는 재편성이 필요합니다.`)) return;
     setCancellingWorker(workerId);
-    await api.post('/office/cancel-offer', { worker_id: workerId });
+    const res = await api.post('/office/cancel-offer', { worker_id: workerId });
     setCancellingWorker(null);
-    refetch();
+    if (res.success) {
+      toast.success(`${workerName}님의 제안을 취소했습니다.`);
+      refetch();
+    } else {
+      toast.error(res.error.message);
+    }
   };
 
   const [cancellingComposition, setCancellingComposition] = useState(false);
@@ -131,6 +136,11 @@ export default function OfficeRequestDetailPage() {
   const needsGapFill = hasDeclined && hasFixed && !isEmergency;
   // 전체 재편성: 전원 거절 (유지할 멤버 없음, 긴급건 아님)
   const needsFullRecompose = hasDeclined && !hasFixed && !isEmergency;
+  // 편성 완료(제안 발송/배차) 후에도 작업 시작 전이면 편성 취소 가능 (B-5).
+  // 긴급/빈자리 재편성 중에도 "재편성 대신 아예 취소"를 선택할 수 있도록 함께 노출한다.
+  const canCancelComposition = !!detail.crew
+    && ['APPROVED', 'NOTIFIED', 'DISPATCHED'].includes(detail.crew.status)
+    && detail.status !== 'RUNNING' && detail.status !== 'COMPLETED';
 
   const GAP_STEPS = ['DETECTED', 'RECOMPOSING', 'PROPOSED', 'APPROVED', 'FILLED'];
   const GAP_STEP_LABEL: Record<string, string> = {
@@ -180,16 +190,10 @@ export default function OfficeRequestDetailPage() {
             </button>
           )}
           {needsGapFill && (
-            <>
-              <button onClick={() => navigate(`/office/compose/${requestId}`)}
-                className="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-purple-700 transition-colors">
-                빈 자리 채우기
-              </button>
-              <button onClick={handleCancelComposition} disabled={cancellingComposition}
-                className="bg-white border border-red-300 text-red-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors">
-                {cancellingComposition ? '취소 중...' : '편성 취소'}
-              </button>
-            </>
+            <button onClick={() => navigate(`/office/compose/${requestId}`)}
+              className="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-purple-700 transition-colors">
+              빈 자리 채우기
+            </button>
           )}
           {needsFullRecompose && (
             <>
@@ -202,6 +206,12 @@ export default function OfficeRequestDetailPage() {
                 수동 재편성
               </button>
             </>
+          )}
+          {canCancelComposition && (
+            <button onClick={handleCancelComposition} disabled={cancellingComposition}
+              className="bg-white border border-red-300 text-red-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors">
+              {cancellingComposition ? '취소 중...' : '편성 취소'}
+            </button>
           )}
         </div>
       </div>

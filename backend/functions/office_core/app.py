@@ -37,6 +37,7 @@ from shared.responses import ApiError, ErrorCode, success
 from shared.schemas import (
     build_assignment,
     build_crew,
+    build_gap_event,
     build_notification,
     build_offer,
     crew_view,
@@ -52,6 +53,8 @@ from shared.state import (
     Acceptance,
     AssignmentStatus,
     CrewStatus,
+    GapStatus,
+    GapType,
     RequestStatus,
     Role,
     WorkerState,
@@ -283,6 +286,8 @@ def cancel_offer(event, principal: Principal, _params):
         raise ApiError(ErrorCode.STATE_CONFLICT, "제안 취소는 NOTIFIED 상태에서만 가능합니다.")
 
     crew_id = (worker.get("current_offer") or {}).get("crew_id") or worker.get("current_crew_id")
+    crew = db.get_crew(crew_id) if crew_id else None
+    request = db.get_request(crew["request_id"]) if crew else None
     now = now_iso()
     entries = [
         txn.worker_entry(worker_id, now=now, to_state=WorkerState.READY,
@@ -294,8 +299,28 @@ def cancel_offer(event, principal: Principal, _params):
             crew_id, worker_id, now=now,
             acceptance=Acceptance.DECLINED, status=AssignmentStatus.CANCELLED,
         ))
+    # 빈 자리(결원)로 등록해 AI/수동 재편성 경로를 열어준다 (B-6).
+    gap = None
+    if crew and request:
+        gap = build_gap_event(
+            office_id=crew["office_id"], crew_id=crew_id, request_id=request["request_id"],
+            gap_type=GapType.UNAVAILABLE, affected_worker_id=worker_id,
+            affected_worker_name=worker.get("name", ""),
+        )
+        entries.append(txn.put_entry("gap_events", gap))
+        declined = list(request.get("declined_worker_ids") or [])
+        if worker_id not in declined:
+            declined.append(worker_id)
+        entries.append(txn.request_status_entry(
+            request["request_id"], to_status=RequestStatus.COMPOSING, now=now,
+            extra_set={"declined_worker_ids": declined},
+        ))
     _run(entries, "제안 취소")
     _notify(worker.get("user_id"), "OFFER_CANCELLED", "제안 취소", "배정 제안이 취소되었습니다.")
+    if request:
+        office = db.get_office(crew["office_id"]) or {}
+        _notify(office.get("owner_user_id") or crew["office_id"], "GAP_EVENT", "빈 자리 발생",
+                f"{worker.get('name', '')}님의 제안이 취소되어 빈 자리가 발생했습니다. 재편성이 필요합니다.")
     return success(worker_office_view(db.get_worker(worker_id)))
 
 
@@ -310,13 +335,22 @@ def cancel_composition(_event, principal: Principal, params):
     if not crew:
         raise ApiError(ErrorCode.CREW_INVALID, "작업조를 찾을 수 없습니다.")
     principal.require_office(crew["office_id"])
+    # 이미 취소되었거나 작업이 시작/완료된 편성은 취소할 수 없다.
+    if crew["status"] in (CrewStatus.CANCELLED, CrewStatus.RUNNING, CrewStatus.COMPLETED):
+        raise ApiError(ErrorCode.STATE_CONFLICT, "이미 작업이 시작/완료되었거나 취소된 편성입니다.")
     request = db.get_request(crew["request_id"])
+    if request and request["status"] in (RequestStatus.RUNNING, RequestStatus.COMPLETED):
+        raise ApiError(ErrorCode.STATE_CONFLICT, "작업이 시작/완료된 요청의 편성은 취소할 수 없습니다.")
 
     now = now_iso()
     entries = []
     restored_workers = []
     for a in db.query_crew_assignments(crew_id):
-        if a.get("acceptance") == Acceptance.DECLINED:
+        # 이미 이탈/거절/노쇼/취소된 배치는 되돌릴 것이 없다.
+        if a.get("acceptance") == Acceptance.DECLINED or a.get("status") in (
+            AssignmentStatus.DECLINED, AssignmentStatus.CANCELLED,
+            AssignmentStatus.NO_SHOW, AssignmentStatus.LEFT_SITE,
+        ):
             continue
         worker = db.get_worker(a["worker_id"])
         if worker and worker.get("state") in (WorkerState.NOTIFIED, WorkerState.RESERVED):
@@ -333,9 +367,24 @@ def cancel_composition(_event, principal: Principal, params):
     entries.append(txn.crew_status_entry(crew_id, to_status=CrewStatus.CANCELLED, now=now))
     if request:
         entries.append(txn.request_status_entry(
-            request["request_id"], to_status=RequestStatus.REQUESTED, now=now,
+            request["request_id"], to_status=RequestStatus.CANCELLED, now=now,
         ))
     _run(entries, "편성 취소")
+
+    # 이 편성에 연결된 진행 중 결원 이벤트를 종료(FAILED)해 댕글링을 막는다.
+    for g in db.query_gap_events_by_crew(crew_id):
+        if g.get("status") in (GapStatus.DETECTED, GapStatus.RECOMPOSING,
+                               GapStatus.PROPOSED, GapStatus.APPROVED):
+            db.update_gap_event(
+                g["event_id"],
+                UpdateExpression="SET #s = :s, gsi1sk = :g, updated_at = :t",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":s": GapStatus.FAILED,
+                    ":g": db.gap_gsi1sk(GapStatus.FAILED, g["event_id"]),
+                    ":t": now,
+                },
+            )
 
     for w in restored_workers:
         _notify(w.get("user_id"), "COMPOSITION_CANCELLED", "편성 취소",
