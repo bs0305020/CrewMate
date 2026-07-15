@@ -200,6 +200,11 @@ def query_office_all_workers(office_id: str) -> list[dict[str, Any]]:
     return resp.get("Items", [])
 
 
+def scan_workers() -> list[dict[str, Any]]:
+    """전체 근로자 스캔 (경력 연차별 통계 등 집계용; 데모 규모 한정)."""
+    return workers_table().scan().get("Items", [])
+
+
 # ---------------------------------------------------------------------------
 # Offices / Companies
 # ---------------------------------------------------------------------------

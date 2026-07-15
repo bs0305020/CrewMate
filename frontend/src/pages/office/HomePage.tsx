@@ -17,8 +17,8 @@ const STATUS_CONFIG: Record<WorkRequestStatus, { label: string; color: string }>
 };
 
 const TRADE_LABEL: Record<string, string> = {
-  FORMWORK: '형틀목공', REBAR: '철근공', MASONRY: '조적공',
-  MATERIAL_CARRY: '자재운반', GENERAL: '보통인부',
+  FORMWORK: '🪵 형틀목공', REBAR: '🔩 철근공', MASONRY: '🧱 조적공',
+  MATERIAL_CARRY: '📦 자재운반', GENERAL: '👷 보통인부', ANY: '🔀 직종 무관',
 };
 
 type Tab = 'active' | 'running' | 'completed';
@@ -109,11 +109,14 @@ export default function OfficeHomePage() {
                 className="bg-white rounded-lg border border-gray-200 p-5 hover:border-purple-300 hover:shadow-sm cursor-pointer transition-all">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <h3 className="font-medium text-gray-800">{req.site_name}</h3>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
                       {canCompose && <span className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">편성 가능</span>}
                     </div>
+                    {req.company_name && (
+                      <p className="text-xs text-gray-500 mb-0.5">🏢 {req.company_name}</p>
+                    )}
                     <p className="text-sm text-gray-500">{req.location_text}</p>
                   </div>
                   <div className="text-right text-sm">

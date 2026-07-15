@@ -97,6 +97,12 @@ def validate_trade(trade: str) -> None:
         raise ApiError(ErrorCode.VALIDATION_ERROR, f"알 수 없는 직종입니다: {trade}")
 
 
+def validate_required_trade(trade: str) -> None:
+    """요청(required_workers)의 직종 검증. 실제 직종 + 직종 무관(ANY) 허용."""
+    if trade not in Trade.REQUIRED_ALL:
+        raise ApiError(ErrorCode.VALIDATION_ERROR, f"알 수 없는 직종입니다: {trade}")
+
+
 def validate_trades(trades: Any, field: str) -> list[str]:
     if trades is None:
         return []
@@ -105,16 +111,6 @@ def validate_trades(trades: Any, field: str) -> list[str]:
     for t in trades:
         validate_trade(t)
     return list(trades)
-
-
-def validate_skill_level(level: Any) -> int:
-    try:
-        level_int = int(level)
-    except (ValueError, TypeError):
-        raise ApiError(ErrorCode.VALIDATION_ERROR, "skill_level은 1~5 정수여야 합니다.")
-    if not 1 <= level_int <= 5:
-        raise ApiError(ErrorCode.VALIDATION_ERROR, "skill_level은 1~5 정수여야 합니다.")
-    return level_int
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +125,6 @@ def build_worker(
     office_id: str,
     preferred_trades: list[str],
     excluded_trades: list[str],
-    skill_level: int,
     career_years: int,
     age: int,
     region: str,
@@ -139,8 +134,10 @@ def build_worker(
     state: str = WorkerState.INACTIVE,
     completed_count: int = 0,
     dispatched_count: int = 0,
+    attended_count: int = 0,
+    rating_sum: int = 0,
+    rating_count: int = 0,
 ) -> dict[str, Any]:
-    skill_level = validate_skill_level(skill_level)
     wid = worker_id or new_id()
     ts = now_iso()
     item = {
@@ -153,14 +150,16 @@ def build_worker(
         "state": state,
         "preferred_trades": preferred_trades,
         "excluded_trades": excluded_trades,
-        "skill_level": skill_level,
         "career_years": career_years,
         "age": age,
         "region": region,
         "desired_daily_wage": desired_daily_wage,
         "certifications": certifications or [],
         "completed_count": completed_count,
-        "dispatched_count": dispatched_count,
+        "dispatched_count": dispatched_count,   # 배차완료(수락 확정) 수
+        "attended_count": attended_count,       # 출근(체크인) 수
+        "rating_sum": rating_sum,               # 평점 합계(내부 누적)
+        "rating_count": rating_count,           # 평점 개수(내부 누적)
         "current_crew_id": None,
         "current_offer": None,
         "state_changed_at": ts,
@@ -170,26 +169,31 @@ def build_worker(
     return to_decimal(item)
 
 
-_WORKER_INTERNAL_KEYS = frozenset({"gsi1sk"})
-# 성실도 비율(완료/배차)의 분모는 사무소 화면 한정. 본인 응답에는 completed_count(내가 한 완료 작업 수)만
-# 노출하고 dispatched_count(배차 확정 수, 비율 계산용)는 제외한다.
-_WORKER_SELF_HIDDEN_KEYS = frozenset({"dispatched_count"})
+_WORKER_INTERNAL_KEYS = frozenset({"gsi1sk", "rating_sum"})
+
+
+def rating_average(worker: dict[str, Any]) -> float | None:
+    """평점 평균(5점 만점, 소수 1자리). 평점이 없으면 None."""
+    count = int(worker.get("rating_count", 0) or 0)
+    if count <= 0:
+        return None
+    total = int(worker.get("rating_sum", 0) or 0)
+    return round(total / count, 1)
 
 
 def worker_office_view(worker: dict[str, Any], work_history: list | None = None) -> dict[str, Any]:
-    """OFFICE 응답용: 성실도 카운트(completed/dispatched) 포함, 내부 GSI 키만 제거."""
+    """OFFICE 응답용: 성실도 카운트(completed/dispatched)·평점 포함, 내부 키만 제거."""
     view = {k: clean(v) for k, v in worker.items() if k not in _WORKER_INTERNAL_KEYS}
+    view["rating"] = rating_average(worker)
     view["work_history"] = clean(work_history or [])
     return view
 
 
 def worker_self_view(worker: dict[str, Any], work_history: list | None = None) -> dict[str, Any]:
-    """WORKER 본인 응답용: completed_count(완료 작업 수)만 노출, dispatched_count(성실도 분모) 제외."""
-    view = {
-        k: clean(v)
-        for k, v in worker.items()
-        if k not in _WORKER_INTERNAL_KEYS and k not in _WORKER_SELF_HIDDEN_KEYS
-    }
+    """WORKER 본인 응답용: 평점(rating)·출근 수(attended_count)·배차완료 수(dispatched_count)·
+    완료 수(completed_count)를 노출한다. rating_sum(내부 누적)만 숨긴다."""
+    view = {k: clean(v) for k, v in worker.items() if k not in _WORKER_INTERNAL_KEYS}
+    view["rating"] = rating_average(worker)
     view["work_history"] = clean(work_history or [])
     return view
 
@@ -199,7 +203,7 @@ def worker_public_view(worker: dict[str, Any]) -> dict[str, Any]:
     return {
         "worker_id": worker.get("worker_id"),
         "name": worker.get("name"),
-        "skill_level": clean(worker.get("skill_level")),
+        "career_years": clean(worker.get("career_years")),
         "preferred_trades": clean(worker.get("preferred_trades") or []),
     }
 
@@ -419,13 +423,13 @@ def build_offer(crew_id: str, request: dict[str, Any], member: dict[str, Any], *
 
 
 def crew_member_view(assignment: dict[str, Any], worker: dict[str, Any] | None) -> dict[str, Any]:
-    """CrewMember 계약: worker_id, name, assigned_trade, skill_level, offered_wage,
+    """CrewMember 계약: worker_id, name, assigned_trade, career_years, offered_wage,
     acceptance, notified_at?, is_replacement?, eta?, worker_state?."""
     view: dict[str, Any] = {
         "worker_id": assignment.get("worker_id"),
         "name": (worker or {}).get("name"),
         "assigned_trade": assignment.get("assigned_trade"),
-        "skill_level": clean((worker or {}).get("skill_level")),
+        "career_years": clean((worker or {}).get("career_years")),
         "offered_wage": clean(assignment.get("offered_wage")),
         "acceptance": assignment.get("acceptance"),
     }

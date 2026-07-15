@@ -39,7 +39,7 @@ def _seed_worker(db, wid, *, state="READY", trade="GENERAL", wage=150000, office
     w = build_worker(
         user_id=wid, worker_id=wid, name=f"근로자{wid}", phone="010-0000-0000",
         office_id=office, preferred_trades=[trade], excluded_trades=[],
-        skill_level=3, career_years=5, age=30, region="부산 해운대구",
+        career_years=5, age=30, region="부산 해운대구",
         desired_daily_wage=wage, state=state,
     )
     db.put_worker(w)
@@ -68,7 +68,7 @@ def test_worker_application_and_ready(tables):
     ev = make_event("POST", "/worker/application", role="WORKER", sub="w1", body={
         "name": "홍길동", "phone": "010-1111-2222", "office_id": OFFICE,
         "preferred_trades": ["GENERAL"], "excluded_trades": ["REBAR"],
-        "skill_level": 3, "career_years": 4, "age": 33, "region": "부산 해운대구",
+        "career_years": 4, "age": 33, "region": "부산 해운대구",
         "desired_daily_wage": 160000,
     })
     resp = _call("functions.worker_api.app", ev)

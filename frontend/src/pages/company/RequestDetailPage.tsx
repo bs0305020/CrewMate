@@ -19,11 +19,11 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const TRADE_LABEL: Record<string, string> = {
-  FORMWORK: '형틀목공', REBAR: '철근공', MASONRY: '조적공',
-  MATERIAL_CARRY: '자재운반', GENERAL: '보통인부',
+  FORMWORK: '🪵 형틀목공', REBAR: '🔩 철근공', MASONRY: '🧱 조적공',
+  MATERIAL_CARRY: '📦 자재운반', GENERAL: '👷 보통인부', ANY: '🔀 직종 무관',
 };
 
-const PRIORITY_LABEL: Record<string, string> = { HIGH: '높음', MEDIUM: '보통', LOW: '낮음' };
+const PRIORITY_LABEL: Record<number, string> = { 1: '1순위', 2: '2순위', 3: '3순위' };
 
 const ACCEPTANCE_CONFIG: Record<AcceptanceStatus, { label: string; color: string }> = {
   PENDING: { label: '응답 대기', color: 'bg-yellow-100 text-yellow-700' },
@@ -65,12 +65,24 @@ export default function RequestDetailPage() {
     refetch();
   };
 
-  const handleCheckout = async (workerId: string, workerName: string) => {
-    if (!confirm(`${workerName}님을 퇴근 처리하시겠습니까?\n퇴근 처리 후에는 되돌릴 수 없습니다.`)) return;
+  // 퇴근 처리 시 별점(1~5) 평가 모달
+  const [checkoutTarget, setCheckoutTarget] = useState<{ workerId: string; workerName: string } | null>(null);
+  const [stars, setStars] = useState(5);
+
+  const handleCheckout = (workerId: string, workerName: string) => {
+    setStars(5);
+    setCheckoutTarget({ workerId, workerName });
+  };
+
+  const submitCheckout = async () => {
+    if (!checkoutTarget) return;
+    const { workerId } = checkoutTarget;
     setActionLoading(workerId + '_out');
-    const res = await api.post(`/company/crews/${detail?.crew?.crew_id}/checkout/${workerId}`, { worker_id: workerId });
+    const res = await api.post(`/company/crews/${detail?.crew?.crew_id}/checkout/${workerId}`, { worker_id: workerId, rating: stars });
     setActionLoading(null);
-    if (!res.success) toast.error(res.error.message);
+    setCheckoutTarget(null);
+    if (res.success) toast.success('퇴근 처리 완료. 평점이 반영되었습니다.');
+    else toast.error(res.error.message);
     refetch();
   };
 
@@ -91,6 +103,32 @@ export default function RequestDetailPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
+      {/* 퇴근 별점 평가 모달 */}
+      {checkoutTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setCheckoutTarget(null)}>
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-800 mb-1">{checkoutTarget.workerName}님 퇴근 처리</h3>
+            <p className="text-sm text-gray-500 mb-4">오늘 작업에 대한 평점을 남겨주세요. (퇴근 후 되돌릴 수 없습니다)</p>
+            <div className="flex justify-center gap-1 mb-5">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <button key={s} type="button" onClick={() => setStars(s)}
+                  className={`text-3xl transition-transform hover:scale-110 ${s <= stars ? 'text-yellow-400' : 'text-gray-300'}`}
+                  aria-label={`${s}점`}>★</button>
+              ))}
+            </div>
+            <p className="text-center text-sm text-gray-600 mb-4">{stars}점</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={submitCheckout}
+                disabled={actionLoading === checkoutTarget.workerId + '_out'}
+                className="flex-1 bg-orange-600 text-white py-2.5 rounded-md text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
+                {actionLoading === checkoutTarget.workerId + '_out' ? '처리 중...' : '퇴근 처리 + 평점 저장'}
+              </button>
+              <button type="button" onClick={() => setCheckoutTarget(null)}
+                className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-md text-sm hover:bg-gray-50">취소</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-gray-800">{detail.site_name}</h2>
         <button onClick={() => navigate('/company')} className="text-sm text-gray-500 hover:text-gray-800">← 목록으로</button>
@@ -164,7 +202,7 @@ export default function RequestDetailPage() {
           <div><span className="text-gray-500">시작 시간</span><p className="font-medium text-gray-800">{detail.start_time}</p></div>
           <div className="col-span-2"><span className="text-gray-500">위치</span><p className="font-medium text-gray-800">{detail.location_text}</p></div>
           <div><span className="text-gray-500">총예산</span><p className="font-medium text-gray-800">{detail.budget.toLocaleString()}원</p></div>
-          <div><span className="text-gray-500">우선순위</span><p className="font-medium text-gray-800 text-xs">비용 {PRIORITY_LABEL[detail.priority.cost]} / 숙련 {PRIORITY_LABEL[detail.priority.skill]} / 팀워크 {PRIORITY_LABEL[detail.priority.teamwork]}</p></div>
+          <div><span className="text-gray-500">우선순위</span><p className="font-medium text-gray-800 text-xs">비용 {PRIORITY_LABEL[detail.priority.cost]} / 경력 {PRIORITY_LABEL[detail.priority.career]} / 팀워크 {PRIORITY_LABEL[detail.priority.teamwork]}</p></div>
         </div>
       </div>
 

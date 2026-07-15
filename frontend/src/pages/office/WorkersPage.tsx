@@ -14,11 +14,11 @@ const TRADE_OPTIONS: { value: Trade | ''; label: string }[] = [
 ];
 
 const TRADE_LABEL: Record<string, string> = {
-  FORMWORK: '형틀목공',
-  REBAR: '철근공',
-  MASONRY: '조적공',
-  MATERIAL_CARRY: '자재운반',
-  GENERAL: '보통인부',
+  FORMWORK: '🪵 형틀목공',
+  REBAR: '🔩 철근공',
+  MASONRY: '🧱 조적공',
+  MATERIAL_CARRY: '📦 자재운반',
+  GENERAL: '👷 보통인부',
 };
 
 const STATE_CONFIG: Record<WorkerState, { label: string; color: string }> = {
@@ -33,7 +33,7 @@ export default function WorkersPage() {
   const navigate = useNavigate();
   const [filterTrade, setFilterTrade] = useState<Trade | ''>('');
   const [filterState, setFilterState] = useState<WorkerState | ''>('READY');
-  const [filterMinSkill, setFilterMinSkill] = useState(1);
+  const [filterMinCareer, setFilterMinCareer] = useState(0);
   const [filterMaxWage, setFilterMaxWage] = useState(300000);
 
   const fetchWorkers = useCallback(async () => {
@@ -50,7 +50,7 @@ export default function WorkersPage() {
   const filtered = (workers || []).filter((w) => {
     if (filterState && w.state !== filterState) return false;
     if (filterTrade && !w.preferred_trades.includes(filterTrade)) return false;
-    if (w.skill_level < filterMinSkill) return false;
+    if (w.career_years < filterMinCareer) return false;
     if (w.desired_daily_wage > filterMaxWage) return false;
     return true;
   });
@@ -92,13 +92,13 @@ export default function WorkersPage() {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">최소 숙련도</label>
+          <label className="block text-xs text-gray-500 mb-1">최소 경력(년)</label>
           <input
             type="number"
-            min={1}
-            max={5}
-            value={filterMinSkill}
-            onChange={(e) => setFilterMinSkill(Number(e.target.value))}
+            min={0}
+            max={50}
+            value={filterMinCareer}
+            onChange={(e) => setFilterMinCareer(Number(e.target.value))}
             className="w-16 border border-gray-300 rounded px-2 py-1.5 text-sm"
           />
         </div>
@@ -127,7 +127,7 @@ export default function WorkersPage() {
               <tr>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">이름</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">희망 직종</th>
-                <th className="text-center px-4 py-3 text-gray-500 font-medium">숙련</th>
+                <th className="text-center px-4 py-3 text-gray-500 font-medium">경력</th>
                 <th className="text-right px-4 py-3 text-gray-500 font-medium">희망 일당</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">지역</th>
                 <th className="text-center px-4 py-3 text-gray-500 font-medium">상태</th>
@@ -146,7 +146,7 @@ export default function WorkersPage() {
                         ))}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-center text-gray-600">{'★'.repeat(w.skill_level)}</td>
+                    <td className="px-4 py-3 text-center text-gray-600">{w.career_years}년차</td>
                     <td className="px-4 py-3 text-right text-gray-600">{w.desired_daily_wage.toLocaleString()}원</td>
                     <td className="px-4 py-3 text-gray-600">{w.region}</td>
                     <td className="px-4 py-3 text-center">

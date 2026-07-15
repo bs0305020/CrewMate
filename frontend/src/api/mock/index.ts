@@ -10,7 +10,9 @@ import type {
   Crew,
   CrewMember,
   Trade,
+  RequiredTrade,
   Recommendation,
+  GapEvent,
 } from '../types';
 import { SEED_ACCOUNTS, SEED_OFFICES, mockState, setCurrentUserId, getCurrentUserId, registerAccount } from './state';
 
@@ -71,6 +73,10 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       state: 'INACTIVE',
       completed_count: 0,
       no_show_count: 0,
+      rating: null,
+      rating_count: 0,
+      attended_count: 0,
+      dispatched_count: 0,
       current_crew_id: null,
       current_offer: null,
       work_history: [],
@@ -129,8 +135,8 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       return { success: false, error: { code: 'STATE_CONFLICT', message: '수락할 배정 제안이 없습니다.' } };
     }
 
-    // worker → RESERVED
-    mockState.workers[idx] = { ...worker, state: 'RESERVED', state_changed_at: now(), updated_at: now() };
+    // worker → RESERVED (배차완료 수 +1)
+    mockState.workers[idx] = { ...worker, state: 'RESERVED', dispatched_count: (worker.dispatched_count || 0) + 1, state_changed_at: now(), updated_at: now() };
 
     // crew member acceptance 업데이트
     const crew = mockState.crews.find((c) => c.crew_id === worker.current_offer!.crew_id);
@@ -196,11 +202,15 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       const mIdx = crew.members.findIndex((m) => m.worker_id === worker.worker_id);
       if (mIdx >= 0) crew.members[mIdx].acceptance = 'DECLINED';
       crew.updated_at = now();
+      // 빈 자리(결원) 이벤트 생성 → AI/수동 재편성 경로 노출
+      createGapEvent(crew, worker.worker_id, worker.name, 'DECLINED');
+      const reqIdx = mockState.requests.findIndex((r) => r.request_id === crew.request_id);
+      if (reqIdx >= 0) mockState.requests[reqIdx] = { ...mockState.requests[reqIdx], status: 'COMPOSING', updated_at: now() };
       pushNotification('USER_OFFICE_001', 'WORKER_DECLINED', '배정 거절', `${worker.name}님이 배정을 거절했습니다. 빈 자리 재편성이 필요합니다.`);
     }
 
-    // 거절한 worker만 INACTIVE (다시 대기하려면 직접 대기 시작)
-    mockState.workers[idx] = { ...worker, state: 'INACTIVE', current_offer: null, current_crew_id: null, state_changed_at: now(), updated_at: now() };
+    // 거절한 worker는 다시 대기(READY)로 복귀 (다른 작업 배정 가능)
+    mockState.workers[idx] = { ...worker, state: 'READY', current_offer: null, current_crew_id: null, state_changed_at: now(), updated_at: now() };
 
     return { success: true, data: mockState.workers[idx] };
   },
@@ -215,6 +225,86 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     const request = mockState.requests.find((r) => r.request_id === crew.request_id);
     if (!request) return { success: true, data: [] };
     return { success: true, data: [{ crew_id: crew.crew_id, request_id: request.request_id, site_name: request.site_name, work_date: request.work_date, start_time: request.start_time, location_text: request.location_text, status: crew.status }] };
+  },
+
+  // 배차완료(RESERVED) 취소 — 작업 시작 24시간 전까지 (C-8)
+  'POST /worker/reservation/cancel': async () => {
+    await delay(200);
+    const userId = getCurrentUserId();
+    const idx = mockState.workers.findIndex((w) => w.user_id === userId);
+    if (idx < 0) return { success: false, error: { code: 'WORKER_NOT_FOUND', message: '근로자 정보를 찾을 수 없습니다.' } };
+    const worker = mockState.workers[idx];
+    if (worker.state !== 'RESERVED' || !worker.current_offer) {
+      return { success: false, error: { code: 'STATE_CONFLICT', message: '배차완료(RESERVED) 상태에서만 취소할 수 있습니다.' } };
+    }
+    const offer = worker.current_offer;
+    const startDt = new Date(`${offer.work_date}T${offer.start_time || '00:00'}:00`);
+    if (!isNaN(startDt.getTime()) && startDt.getTime() - Date.now() < 24 * 60 * 60 * 1000) {
+      return { success: false, error: { code: 'STATE_CONFLICT', message: '작업 시작 24시간 이내에는 취소할 수 없습니다.' } };
+    }
+    const crew = mockState.crews.find((c) => c.crew_id === offer.crew_id);
+    if (crew) {
+      recordDecline(crew.request_id, worker.worker_id);
+      const mIdx = crew.members.findIndex((m) => m.worker_id === worker.worker_id);
+      if (mIdx >= 0) crew.members[mIdx].acceptance = 'DECLINED';
+      crew.updated_at = now();
+      createGapEvent(crew, worker.worker_id, worker.name, 'UNAVAILABLE');
+      const reqIdx = mockState.requests.findIndex((r) => r.request_id === crew.request_id);
+      if (reqIdx >= 0) mockState.requests[reqIdx] = { ...mockState.requests[reqIdx], status: 'COMPOSING', updated_at: now() };
+      pushNotification('USER_OFFICE_001', 'GAP_EVENT', '배차 취소', `${worker.name}님이 배차를 취소했습니다. 재편성이 필요합니다.`);
+    }
+    // READY 복귀 + 배차완료 카운트 -1 (24h 이전 취소는 배차완료에서 제외)
+    mockState.workers[idx] = { ...worker, state: 'READY', current_offer: null, current_crew_id: null, dispatched_count: Math.max(0, (worker.dispatched_count || 0) - 1), state_changed_at: now(), updated_at: now() };
+    return { success: true, data: mockState.workers[idx] };
+  },
+
+  // 내가 수락한 작업 이력 (C-12)
+  'GET /worker/accepted-jobs': async () => {
+    await delay(150);
+    const userId = getCurrentUserId();
+    const worker = mockState.workers.find((w) => w.user_id === userId);
+    if (!worker) return { success: true, data: [] };
+    const jobs = mockState.crews
+      .map((crew) => {
+        const m = crew.members.find((mm) => mm.worker_id === worker.worker_id && mm.acceptance === 'ACCEPTED');
+        if (!m) return null;
+        const req = mockState.requests.find((r) => r.request_id === crew.request_id);
+        if (!req) return null;
+        return {
+          crew_id: crew.crew_id, request_id: req.request_id, site_name: req.site_name,
+          work_date: req.work_date, start_time: req.start_time, location_text: req.location_text,
+          assigned_trade: m.assigned_trade, offered_wage: m.offered_wage,
+          status: crew.status, accepted_at: crew.updated_at,
+        };
+      })
+      .filter((j) => j !== null);
+    return { success: true, data: jobs };
+  },
+
+  // 출근일 히트맵 집계 (C-13)
+  'GET /worker/attendance': async () => {
+    await delay(120);
+    const userId = getCurrentUserId();
+    const worker = mockState.workers.find((w) => w.user_id === userId);
+    if (!worker) return { success: true, data: {} };
+    const counts: Record<string, number> = {};
+    for (const h of worker.work_history) {
+      if (h.work_date) counts[h.work_date] = (counts[h.work_date] || 0) + 1;
+    }
+    return { success: true, data: counts };
+  },
+
+  // 경력 연차별 평균 희망 일당 (C-10) — 직종 무관
+  'GET /worker/wage-stats/{careerYears}': async (_body, careerYears?: string) => {
+    await delay(100);
+    const years = Number(careerYears);
+    if (Number.isNaN(years)) return { success: false, error: { code: 'VALIDATION_ERROR', message: 'career_years(정수)가 필요합니다.' } };
+    const wages = mockState.workers
+      .filter((w) => w.career_years === years && w.desired_daily_wage > 0)
+      .map((w) => w.desired_daily_wage);
+    if (wages.length === 0) return { success: true, data: { career_years: years, average_wage: null, sample_count: 0 } };
+    const avg = Math.round(wages.reduce((s, x) => s + x, 0) / wages.length);
+    return { success: true, data: { career_years: years, average_wage: avg, sample_count: wages.length } };
   },
 
   // === 공통: 인력사무소 목록 ===
@@ -283,7 +373,8 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     if (wIdx < 0) return { success: false, error: { code: 'WORKER_NOT_FOUND', message: '근로자를 찾을 수 없습니다.' } };
     const worker = mockState.workers[wIdx];
     if (worker.state !== 'RESERVED') return { success: false, error: { code: 'STATE_CONFLICT', message: '출근 처리는 배차완료(RESERVED) 상태에서만 가능합니다.' } };
-    mockState.workers[wIdx] = { ...worker, state: 'RUNNING', state_changed_at: now(), updated_at: now() };
+    // 출근(체크인) 수 +1
+    mockState.workers[wIdx] = { ...worker, state: 'RUNNING', attended_count: (worker.attended_count || 0) + 1, state_changed_at: now(), updated_at: now() };
     // crew도 RUNNING으로 변경 (전원 RUNNING 시)
     const crew = mockState.crews.find((c) => c.crew_id === worker.current_crew_id);
     if (crew) {
@@ -296,10 +387,10 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     return { success: true, data: mockState.workers[wIdx] };
   },
 
-  // 퇴근 처리 (company가 호출)
+  // 퇴근 처리 (company가 호출, body.rating: 1~5 별점 선택)
   'POST /company/crews/{crewId}/checkout/{workerId}': async (_body) => {
     await delay(200);
-    const { worker_id } = (_body || {}) as { worker_id: string };
+    const { worker_id, rating } = (_body || {}) as { worker_id: string; rating?: number };
     const wIdx = mockState.workers.findIndex((w) => w.worker_id === worker_id);
     if (wIdx < 0) return { success: false, error: { code: 'WORKER_NOT_FOUND', message: '근로자를 찾을 수 없습니다.' } };
     const worker = mockState.workers[wIdx];
@@ -317,7 +408,15 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       offered_wage: memberForHistory.offered_wage,
       completed_at: now(),
     } : null;
-    mockState.workers[wIdx] = { ...worker, state: 'INACTIVE', current_crew_id: null, current_offer: null, completed_count: worker.completed_count + 1, work_history: historyEntry ? [...worker.work_history, historyEntry] : worker.work_history, state_changed_at: now(), updated_at: now() };
+    // 별점(1~5) 반영: 평균/개수 갱신
+    let ratingCount = worker.rating_count || 0;
+    let ratingAvg = worker.rating ?? null;
+    if (typeof rating === 'number' && rating >= 1 && rating <= 5) {
+      const newCount = ratingCount + 1;
+      ratingAvg = Math.round(((ratingAvg ?? 0) * ratingCount + rating) / newCount * 10) / 10;
+      ratingCount = newCount;
+    }
+    mockState.workers[wIdx] = { ...worker, state: 'INACTIVE', current_crew_id: null, current_offer: null, completed_count: worker.completed_count + 1, rating: ratingAvg, rating_count: ratingCount, work_history: historyEntry ? [...worker.work_history, historyEntry] : worker.work_history, state_changed_at: now(), updated_at: now() };
     // 전원 퇴근(INACTIVE) 시 crew→COMPLETED, request→COMPLETED
     const crew = mockState.crews.find((c) => c.crew_id === crewIdBeforeCheckout);
     if (crew) {
@@ -343,7 +442,10 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
 
   'GET /office/requests': async () => {
     await delay(150);
-    return { success: true, data: mockState.requests.filter((r) => r.office_id === 'OFFICE001') };
+    const items = mockState.requests
+      .filter((r) => r.office_id === 'OFFICE001')
+      .map((r) => ({ ...r, company_name: companyName(r.company_id) }));
+    return { success: true, data: items };
   },
 
   'GET /office/requests/{id}': async (_body, requestId?: string) => {
@@ -358,7 +460,7 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
         return { ...m, worker_state: w?.state || 'INACTIVE' };
       }),
     } : null;
-    return { success: true, data: { ...request, crew: crewWithState } };
+    return { success: true, data: { ...request, company_name: companyName(request.company_id), crew: crewWithState } };
   },
 
   // office가 요청 거절
@@ -394,10 +496,15 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       const mIdx = crew.members.findIndex((m) => m.worker_id === worker_id);
       if (mIdx >= 0) crew.members[mIdx].acceptance = 'DECLINED';
       crew.updated_at = now();
+      // 빈 자리(결원) 이벤트 생성 → AI/수동 재편성 경로 노출
+      createGapEvent(crew, worker_id, worker.name, 'UNAVAILABLE');
+      const reqIdx = mockState.requests.findIndex((r) => r.request_id === crew.request_id);
+      if (reqIdx >= 0) mockState.requests[reqIdx] = { ...mockState.requests[reqIdx], status: 'COMPOSING', updated_at: now() };
+      pushNotification('USER_OFFICE_001', 'GAP_EVENT', '빈 자리 발생', `${worker.name}님의 제안이 취소되어 빈 자리가 발생했습니다. 재편성이 필요합니다.`);
     }
 
-    // 취소된 worker만 INACTIVE
-    mockState.workers[wIdx] = { ...worker, state: 'INACTIVE', current_offer: null, current_crew_id: null, state_changed_at: now(), updated_at: now() };
+    // 취소된 worker는 다시 대기(READY)로 복귀
+    mockState.workers[wIdx] = { ...worker, state: 'READY', current_offer: null, current_crew_id: null, state_changed_at: now(), updated_at: now() };
     pushNotification(worker.user_id, 'OFFER_CANCELLED', '제안 취소', '배정 제안이 취소되었습니다.');
     return { success: true, data: mockState.workers[wIdx] };
   },
@@ -429,7 +536,7 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     // 신규 멤버 생성 (NOTIFIED로 제안)
     const addedMembers: CrewMember[] = newMembers.map((mi) => {
       const w = mockState.workers.find((x) => x.worker_id === mi.worker_id)!;
-      return { worker_id: w.worker_id, name: w.name, assigned_trade: mi.assigned_trade, skill_level: w.skill_level, offered_wage: mi.offered_wage, acceptance: 'PENDING' as const, is_replacement: true };
+      return { worker_id: w.worker_id, name: w.name, assigned_trade: mi.assigned_trade, career_years: w.career_years, offered_wage: mi.offered_wage, acceptance: 'PENDING' as const, is_replacement: true };
     });
 
     // 예산 검증 (fixed + added 총합)
@@ -497,6 +604,14 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     crew.status = 'CANCELLED';
     crew.updated_at = now();
 
+    // 이 편성에 연결된 진행 중 결원 이벤트 종료(FAILED) — 댕글링 방지
+    for (const g of mockState.gapEvents) {
+      if (g.crew_id === crew.crew_id && ['DETECTED', 'RECOMPOSING', 'PROPOSED', 'APPROVED'].includes(g.status)) {
+        g.status = 'FAILED';
+        g.updated_at = now();
+      }
+    }
+
     // 요청 취소 + company에 취소 요청 알림
     if (request) {
       const reqIdx = mockState.requests.findIndex((r) => r.request_id === request.request_id);
@@ -551,7 +666,7 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
 
     const crewMembers: CrewMember[] = memberInputs.map((mi) => {
       const w = mockState.workers.find((x) => x.worker_id === mi.worker_id)!;
-      return { worker_id: w.worker_id, name: w.name, assigned_trade: mi.assigned_trade, skill_level: w.skill_level, offered_wage: mi.offered_wage, acceptance: 'PENDING' };
+      return { worker_id: w.worker_id, name: w.name, assigned_trade: mi.assigned_trade, career_years: w.career_years, offered_wage: mi.offered_wage, acceptance: 'PENDING' };
     });
 
     // 기존 crew 정리 (재편성 시 옛 거절 crew 제거)
@@ -604,9 +719,10 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
         for (const w of sorted) {
           if (assigned >= rw.count) break;
           if (members.some((m) => m.worker_id === w.worker_id)) continue;
-          if (w.excluded_trades.includes(rw.trade)) continue;
+          const at = rw.trade === 'ANY' ? assignAnyTrade(w) : rw.trade;
+          if (!at || w.excluded_trades.includes(at)) continue;
           const wage = w.desired_daily_wage;
-          members.push({ worker_id: w.worker_id, name: w.name, assigned_trade: rw.trade, skill_level: w.skill_level, offered_wage: wage, acceptance: 'PENDING' as const, notified_at: undefined });
+          members.push({ worker_id: w.worker_id, name: w.name, assigned_trade: at, career_years: w.career_years, offered_wage: wage, acceptance: 'PENDING' as const, notified_at: undefined });
           costTotal += wage;
           assigned++;
         }
@@ -616,7 +732,7 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       const withinBudget = request.budget <= 0 || costTotal <= request.budget;
       const isDuplicate = recommendations.some((r) => r.member_ids.slice().sort().join(',') === members.map((m) => m.worker_id).sort().join(','));
       if (members.length >= totalNeeded && withinBudget && !isDuplicate) {
-        const reasons = ['필수 직종 구성 충족', '예산 범위 내', rankCounter === 1 ? '최저 비용 우선' : '숙련도 균형'];
+        const reasons = ['필수 직종 구성 충족', '예산 범위 내', rankCounter === 1 ? '최저 비용 우선' : '경력 균형'];
         recommendations.push({
           rank: rankCounter,
           member_ids: members.map((m) => m.worker_id),
@@ -624,6 +740,7 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
           total_cost: costTotal,
           reason: `${reasons.join(', ')} 기준으로 구성한 ${rankCounter}안입니다.`,
           considerations: reasons,
+          fitness: computeFitness(members, request.budget, request.priority),
         });
         rankCounter++;
       }
@@ -736,12 +853,21 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     const fixedMembers = crew.members.filter((m) => m.acceptance !== 'DECLINED');
     const fixedCost = fixedMembers.reduce((s, m) => s + m.offered_wage, 0);
 
-    // 결원 직종 계산 (요구 - 고정 인원)
-    const gapTrades: Trade[] = [];
+    // 결원 직종 계산 (요구 - 고정 인원). 특정 직종을 먼저 소비하고, 남은 고정 인원으로 ANY를 흡수.
+    const gapTrades: RequiredTrade[] = [];
+    const fixedPool: Trade[] = fixedMembers.map((m) => m.assigned_trade);
+    let anyNeeded = 0;
     for (const rw of request.required_workers) {
-      const fixedHave = fixedMembers.filter((m) => m.assigned_trade === rw.trade).length;
-      for (let i = 0; i < rw.count - fixedHave; i++) gapTrades.push(rw.trade);
+      if (rw.trade === 'ANY') { anyNeeded += rw.count; continue; }
+      let have = 0;
+      for (let i = 0; i < rw.count; i++) {
+        const idx = fixedPool.indexOf(rw.trade);
+        if (idx >= 0) { fixedPool.splice(idx, 1); have++; }
+      }
+      for (let i = 0; i < rw.count - have; i++) gapTrades.push(rw.trade);
     }
+    const anyRemaining = Math.max(0, anyNeeded - fixedPool.length);
+    for (let i = 0; i < anyRemaining; i++) gapTrades.push('ANY');
 
     // 대체 후보: READY + 거절 이력 없음 + 고정멤버 아님
     const declinedIds = request.declined_worker_ids || [];
@@ -764,8 +890,9 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
       for (const trade of gapTrades) {
         for (const w of sorted) {
           if (picked.some((p) => p.worker_id === w.worker_id)) continue;
-          if (w.excluded_trades.includes(trade)) continue;
-          picked.push({ worker_id: w.worker_id, name: w.name, assigned_trade: trade, skill_level: w.skill_level, offered_wage: w.desired_daily_wage, acceptance: 'PENDING' });
+          const at = trade === 'ANY' ? assignAnyTrade(w) : trade;
+          if (!at || w.excluded_trades.includes(at)) continue;
+          picked.push({ worker_id: w.worker_id, name: w.name, assigned_trade: at, career_years: w.career_years, offered_wage: w.desired_daily_wage, acceptance: 'PENDING' });
           cost += w.desired_daily_wage;
           break;
         }
@@ -779,7 +906,8 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
           members: picked,
           total_cost: cost,
           reason: `잔여 팀원과의 협업 및 예산(${remainingBudget > 0 ? remainingBudget.toLocaleString() + '원 이내' : '제한 없음'})을 고려한 긴급 대체 ${rankCounter}안입니다.`,
-          considerations: ['잔여 팀원 유지', '결원 직종 충족', rankCounter === 1 ? '최저 비용' : '숙련도 균형'],
+          considerations: ['잔여 팀원 유지', '결원 직종 충족', rankCounter === 1 ? '최저 비용' : '경력 균형'],
+          fitness: computeFitness(picked, remainingBudget, request.priority),
         });
         rankCounter++;
       }
@@ -820,7 +948,7 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     const fixedMembers = crew.members.filter((m) => m.acceptance !== 'DECLINED');
     const addedMembers: CrewMember[] = replacementInputs.map((mi) => {
       const w = mockState.workers.find((x) => x.worker_id === mi.worker_id)!;
-      return { worker_id: w.worker_id, name: w.name, assigned_trade: mi.assigned_trade, skill_level: w.skill_level, offered_wage: mi.offered_wage, acceptance: 'PENDING' as const, is_replacement: true };
+      return { worker_id: w.worker_id, name: w.name, assigned_trade: mi.assigned_trade, career_years: w.career_years, offered_wage: mi.offered_wage, acceptance: 'PENDING' as const, is_replacement: true };
     });
 
     crew.members = [...fixedMembers, ...addedMembers];
@@ -940,6 +1068,63 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
 function delay(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function now() { return new Date().toISOString(); }
 
+const ALL_TRADES: Trade[] = ['FORMWORK', 'REBAR', 'MASONRY', 'MATERIAL_CARRY', 'GENERAL'];
+
+// 직종 무관(ANY) 슬롯에 배정할 실제 직종을 고른다 (excluded 회피).
+function assignAnyTrade(w: Worker): Trade | null {
+  const excluded = w.excluded_trades;
+  const pref = w.preferred_trades.find((t) => !excluded.includes(t));
+  if (pref) return pref;
+  if (!excluded.includes('GENERAL')) return 'GENERAL';
+  return ALL_TRADES.find((t) => !excluded.includes(t)) || null;
+}
+
+// company_id(=userId)로 건설사 이름 조회 (office 화면 표시용, C-14).
+function companyName(companyId: string | undefined): string {
+  if (!companyId) return '';
+  for (const acc of Object.values(SEED_ACCOUNTS)) {
+    if (acc.user.userId === companyId) return acc.user.name;
+  }
+  return companyId;
+}
+
+// 추천안 적합도(0~100) 계산 — 우선순위(비용/경력/팀워크) 가중. mock 데모용 근사.
+function computeFitness(
+  members: { offered_wage: number; career_years?: number }[],
+  budget: number,
+  priority: { cost: number; career: number; teamwork: number } | undefined,
+): number {
+  if (members.length === 0) return 0;
+  const rank = priority || { cost: 2, career: 2, teamwork: 2 };
+  const raw = { cost: 4 - rank.cost, career: 4 - rank.career, teamwork: 4 - rank.teamwork };
+  const tot = raw.cost + raw.career + raw.teamwork || 1;
+  const w = { cost: raw.cost / tot, career: raw.career / tot, teamwork: raw.teamwork / tot };
+  const totalCost = members.reduce((s, m) => s + m.offered_wage, 0);
+  const costS = budget > 0 ? Math.max(0, Math.min(1, 1 - totalCost / budget)) : 0.6;
+  const avgCareer = members.reduce((s, m) => s + (m.career_years || 0), 0) / members.length;
+  const careerS = Math.min(avgCareer / 15, 1);
+  const teamS = 0; // mock: 협업 이력 미집계
+  return Math.round((w.cost * costS + w.career * careerS + w.teamwork * teamS) * 100);
+}
+
+// 결원 이벤트 생성 (멤버 상실 시 AI/수동 재편성 경로를 열어준다).
+function createGapEvent(crew: Crew, workerId: string, workerName: string, type: GapEvent['type']): GapEvent {
+  const gapEvent: GapEvent = {
+    event_id: `GAP${String(mockState.gapEvents.length + 1).padStart(3, '0')}`,
+    crew_id: crew.crew_id,
+    request_id: crew.request_id,
+    office_id: crew.office_id,
+    type,
+    affected_worker_id: workerId,
+    affected_worker_name: workerName,
+    status: 'DETECTED',
+    created_at: now(),
+    updated_at: now(),
+  };
+  mockState.gapEvents.push(gapEvent);
+  return gapEvent;
+}
+
 function applyApplicationFields(payload: WorkerApplicationRequest) {
   return {
     name: payload.name,
@@ -947,7 +1132,6 @@ function applyApplicationFields(payload: WorkerApplicationRequest) {
     office_id: payload.office_id,
     preferred_trades: payload.preferred_trades,
     excluded_trades: payload.excluded_trades,
-    skill_level: payload.skill_level,
     career_years: payload.career_years,
     age: payload.age,
     region: payload.region,

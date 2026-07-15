@@ -11,10 +11,10 @@ const STATUS_LABEL: Record<string, string> = {
   COMPLETED: '완료', CANCELLED: '취소', NOTIFIED: '수락 대기', DRAFT: '임시', REJECTED: '거절됨',
 };
 const TRADE_LABEL: Record<string, string> = {
-  FORMWORK: '형틀목공', REBAR: '철근공', MASONRY: '조적공',
-  MATERIAL_CARRY: '자재운반', GENERAL: '보통인부',
+  FORMWORK: '🪵 형틀목공', REBAR: '🔩 철근공', MASONRY: '🧱 조적공',
+  MATERIAL_CARRY: '📦 자재운반', GENERAL: '👷 보통인부', ANY: '🔀 직종 무관',
 };
-const PRIORITY_LABEL: Record<string, string> = { HIGH: '높음', MEDIUM: '보통', LOW: '낮음' };
+const PRIORITY_LABEL: Record<number, string> = { 1: '1순위', 2: '2순위', 3: '3순위' };
 const ACCEPTANCE_CONFIG: Record<AcceptanceStatus, { label: string; color: string }> = {
   PENDING: { label: '응답 대기', color: 'bg-yellow-100 text-yellow-700' },
   ACCEPTED: { label: '수락', color: 'bg-green-100 text-green-700' },
@@ -70,11 +70,16 @@ export default function OfficeRequestDetailPage() {
   };
 
   const handleCancelOffer = async (workerId: string, workerName: string) => {
-    if (!confirm(`${workerName}님의 제안을 취소하시겠습니까?\n취소 시 해당 근로자는 비활성(INACTIVE) 상태가 됩니다.`)) return;
+    if (!confirm(`${workerName}님의 제안을 취소하시겠습니까?\n취소 시 해당 근로자는 다시 대기 상태가 되며, 빈 자리는 재편성이 필요합니다.`)) return;
     setCancellingWorker(workerId);
-    await api.post('/office/cancel-offer', { worker_id: workerId });
+    const res = await api.post('/office/cancel-offer', { worker_id: workerId });
     setCancellingWorker(null);
-    refetch();
+    if (res.success) {
+      toast.success(`${workerName}님의 제안을 취소했습니다.`);
+      refetch();
+    } else {
+      toast.error(res.error.message);
+    }
   };
 
   const [cancellingComposition, setCancellingComposition] = useState(false);
@@ -131,6 +136,11 @@ export default function OfficeRequestDetailPage() {
   const needsGapFill = hasDeclined && hasFixed && !isEmergency;
   // 전체 재편성: 전원 거절 (유지할 멤버 없음, 긴급건 아님)
   const needsFullRecompose = hasDeclined && !hasFixed && !isEmergency;
+  // 편성 완료(제안 발송/배차) 후에도 작업 시작 전이면 편성 취소 가능 (B-5).
+  // 긴급/빈자리 재편성 중에도 "재편성 대신 아예 취소"를 선택할 수 있도록 함께 노출한다.
+  const canCancelComposition = !!detail.crew
+    && ['APPROVED', 'NOTIFIED', 'DISPATCHED'].includes(detail.crew.status)
+    && detail.status !== 'RUNNING' && detail.status !== 'COMPLETED';
 
   const GAP_STEPS = ['DETECTED', 'RECOMPOSING', 'PROPOSED', 'APPROVED', 'FILLED'];
   const GAP_STEP_LABEL: Record<string, string> = {
@@ -140,7 +150,10 @@ export default function OfficeRequestDetailPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-gray-800">{detail.site_name}</h2>
+        <div>
+          <h2 className="text-xl font-semibold text-gray-800">{detail.site_name}</h2>
+          {detail.company_name && <p className="text-sm text-gray-500 mt-0.5">🏢 {detail.company_name}</p>}
+        </div>
         <button onClick={() => navigate('/office')} className="text-sm text-gray-500 hover:text-gray-800">← 목록으로</button>
       </div>
 
@@ -180,16 +193,10 @@ export default function OfficeRequestDetailPage() {
             </button>
           )}
           {needsGapFill && (
-            <>
-              <button onClick={() => navigate(`/office/compose/${requestId}`)}
-                className="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-purple-700 transition-colors">
-                빈 자리 채우기
-              </button>
-              <button onClick={handleCancelComposition} disabled={cancellingComposition}
-                className="bg-white border border-red-300 text-red-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors">
-                {cancellingComposition ? '취소 중...' : '편성 취소'}
-              </button>
-            </>
+            <button onClick={() => navigate(`/office/compose/${requestId}`)}
+              className="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-purple-700 transition-colors">
+              빈 자리 채우기
+            </button>
           )}
           {needsFullRecompose && (
             <>
@@ -202,6 +209,12 @@ export default function OfficeRequestDetailPage() {
                 수동 재편성
               </button>
             </>
+          )}
+          {canCancelComposition && (
+            <button onClick={handleCancelComposition} disabled={cancellingComposition}
+              className="bg-white border border-red-300 text-red-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors">
+              {cancellingComposition ? '취소 중...' : '편성 취소'}
+            </button>
           )}
         </div>
       </div>
@@ -276,7 +289,14 @@ export default function OfficeRequestDetailPage() {
                 selectedRank === idx ? 'border-indigo-500 shadow-md' : 'border-gray-200 hover:border-indigo-300'
               }`}>
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-bold text-indigo-700">AI 추천 {rec.rank}안</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-indigo-700">AI 추천 {rec.rank}안</span>
+                  {typeof rec.fitness === 'number' && (
+                    <span className="text-xs font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                      적합도 {rec.fitness}%
+                    </span>
+                  )}
+                </div>
                 <span className="text-sm font-medium text-gray-800">{rec.total_cost.toLocaleString()}원</span>
               </div>
               <div className="space-y-1.5 mb-3">
@@ -342,7 +362,7 @@ export default function OfficeRequestDetailPage() {
           <div><span className="text-gray-500">시작 시간</span><p className="font-medium text-gray-800">{detail.start_time}</p></div>
           <div className="col-span-2"><span className="text-gray-500">위치</span><p className="font-medium text-gray-800">{detail.location_text}</p></div>
           <div><span className="text-gray-500">총예산</span><p className="font-medium text-gray-800">{detail.budget.toLocaleString()}원</p></div>
-          <div><span className="text-gray-500">우선순위</span><p className="font-medium text-gray-800 text-xs">비용 {PRIORITY_LABEL[detail.priority.cost]} / 숙련 {PRIORITY_LABEL[detail.priority.skill]} / 팀워크 {PRIORITY_LABEL[detail.priority.teamwork]}</p></div>
+          <div><span className="text-gray-500">우선순위</span><p className="font-medium text-gray-800 text-xs">비용 {PRIORITY_LABEL[detail.priority.cost]} / 경력 {PRIORITY_LABEL[detail.priority.career]} / 팀워크 {PRIORITY_LABEL[detail.priority.teamwork]}</p></div>
         </div>
       </div>
 

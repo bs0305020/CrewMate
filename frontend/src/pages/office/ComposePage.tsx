@@ -1,19 +1,31 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { Worker, WorkRequest, Crew, CrewMember, Trade, RequiredWorker } from '../../api/types';
+import type { Worker, WorkRequest, Crew, CrewMember, Trade, RequiredTrade, RequiredWorker } from '../../api/types';
+import { tradeMeta } from '../../lib/trades';
+import { commaInputValue, parseDigits } from '../../lib/format';
 
 const TRADE_LABEL: Record<string, string> = {
-  FORMWORK: '형틀목공',
-  REBAR: '철근공',
-  MASONRY: '조적공',
-  MATERIAL_CARRY: '자재운반',
-  GENERAL: '보통인부',
+  FORMWORK: '🪵 형틀목공',
+  REBAR: '🔩 철근공',
+  MASONRY: '🧱 조적공',
+  MATERIAL_CARRY: '📦 자재운반',
+  GENERAL: '👷 보통인부',
+  ANY: '🔀 직종 무관',
 };
 
 const ALL_TRADES: Trade[] = ['FORMWORK', 'REBAR', 'MASONRY', 'MATERIAL_CARRY', 'GENERAL'];
 
-const ACTIVE_CREW_STATUSES = ['DRAFT', 'PROPOSED', 'APPROVED', 'NOTIFIED', 'DISPATCHED', 'RUNNING'];
+// 직종 무관(ANY) 슬롯에 배정할 실제 직종 (excluded 회피).
+function resolveAnyTrade(worker: Worker): Trade {
+  const pref = worker.preferred_trades.find((t) => !worker.excluded_trades.includes(t));
+  if (pref) return pref;
+  return ALL_TRADES.find((t) => !worker.excluded_trades.includes(t)) || ALL_TRADES[0];
+}
+
+// 빈 자리 채우기(gap-fill) 모드는 "승인·배차되어 실제 확정된 팀원"이 있을 때만.
+// PROPOSED(승인 전 AI 추천안)는 확정 팀원이 아니므로 수동 편성 시 그대로 시작한다. (A-4)
+const GAP_FILL_CREW_STATUSES = ['APPROVED', 'NOTIFIED', 'DISPATCHED', 'RUNNING'];
 
 interface SelectedMember {
   worker_id: string;
@@ -35,6 +47,9 @@ export default function ComposePage() {
   // 빈 자리 채우기(부분 재편성) 모드
   const [activeCrew, setActiveCrew] = useState<Crew | null>(null);
   const [fixedMembers, setFixedMembers] = useState<CrewMember[]>([]);
+  // 후보 필터 (D-18)
+  const [filterTrade, setFilterTrade] = useState<Trade | ''>('');
+  const [onlyNeeded, setOnlyNeeded] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -45,8 +60,9 @@ export default function ComposePage() {
       if (reqRes.success) {
         setRequest(reqRes.data);
         const crew = reqRes.data.crew;
-        // 활성 crew에 확정된(거절 아닌) 멤버가 있으면 = 빈 자리 채우기 모드
-        if (crew && ACTIVE_CREW_STATUSES.includes(crew.status)) {
+        // 승인·배차된 crew에 확정(거절 아닌) 멤버가 있을 때만 빈 자리 채우기 모드.
+        // 승인 전 AI 추천(PROPOSED)은 확정 팀원으로 취급하지 않는다.
+        if (crew && GAP_FILL_CREW_STATUSES.includes(crew.status)) {
           const fixed = crew.members.filter((m) => m.acceptance !== 'DECLINED');
           if (fixed.length > 0) {
             setActiveCrew(crew);
@@ -66,10 +82,10 @@ export default function ComposePage() {
     return !worker.excluded_trades.includes(trade);
   };
 
-  // worker가 아무 직종에도 배치 불가한지 (모든 요청 직종이 excluded)
+  // worker가 아무 직종에도 배치 불가한지 (모든 요청 직종이 excluded). ANY 요구가 있으면 배치 가능.
   const isFullyExcluded = (worker: Worker) => {
     if (!request) return false;
-    return request.required_workers.every((rw) => worker.excluded_trades.includes(rw.trade));
+    return request.required_workers.every((rw) => rw.trade !== 'ANY' && worker.excluded_trades.includes(rw.trade));
   };
 
   // 이 요청에 거절한 이력이 있는지
@@ -85,8 +101,9 @@ export default function ComposePage() {
     for (const pt of worker.preferred_trades) {
       if (request.required_workers.some((rw) => rw.trade === pt)) return pt;
     }
-    // 그 외 배치 가능한 것
+    // 그 외 배치 가능한 것 (ANY 요구는 배치 가능한 실제 직종으로)
     for (const rw of request.required_workers) {
+      if (rw.trade === 'ANY') return resolveAnyTrade(worker);
       if (canAssignTrade(worker, rw.trade)) return rw.trade;
     }
     return ALL_TRADES[0];
@@ -112,14 +129,35 @@ export default function ComposePage() {
     ));
   };
 
-  // 직종별 충족 현황 (gap 모드면 fixed 멤버도 포함해서 카운트)
-  const getTradeStatus = (): { trade: Trade; required: number; have: number }[] => {
+  // 직종별 충족 현황 (gap 모드면 fixed 멤버도 포함해서 카운트).
+  // 특정 직종을 먼저 소비하고, 남은 인원으로 ANY(직종 무관) 요구를 채운다.
+  const getTradeStatus = (): { trade: RequiredTrade; required: number; have: number }[] => {
     if (!request) return [];
-    return request.required_workers.map((rw: RequiredWorker) => {
-      const fixedHave = fixedMembers.filter((m) => m.assigned_trade === rw.trade).length;
-      const selectedHave = selected.filter((s) => s.assigned_trade === rw.trade).length;
-      return { trade: rw.trade, required: rw.count, have: fixedHave + selectedHave };
+    const pool: Trade[] = [
+      ...fixedMembers.map((m) => m.assigned_trade),
+      ...selected.map((s) => s.assigned_trade),
+    ];
+    const rows = request.required_workers.map((rw: RequiredWorker) => ({
+      trade: rw.trade, required: rw.count, have: 0,
+    }));
+    // 1) 특정 직종 소비
+    rows.forEach((row) => {
+      if (row.trade === 'ANY') return;
+      while (row.have < row.required) {
+        const idx = pool.indexOf(row.trade as Trade);
+        if (idx < 0) break;
+        pool.splice(idx, 1);
+        row.have++;
+      }
     });
+    // 2) 남은 인원으로 ANY 충족
+    rows.forEach((row) => {
+      if (row.trade !== 'ANY') return;
+      const take = Math.min(row.required, pool.length);
+      pool.splice(0, take);
+      row.have = take;
+    });
+    return rows;
   };
 
   const tradeStatus = getTradeStatus();
@@ -127,6 +165,15 @@ export default function ComposePage() {
   const fixedCost = fixedMembers.reduce((s, m) => s + m.offered_wage, 0);
   const totalCost = fixedCost + selected.reduce((s, m) => s + m.offered_wage, 0);
   const overBudget = request ? totalCost > request.budget && request.budget > 0 : false;
+
+  // 후보 필터 (D-18): 직종 선택 + 아직 부족한 직종만 보기
+  const neededTrades = tradeStatus.filter((t) => t.have < t.required).map((t) => t.trade);
+  const canFillTrade = (w: Worker, t: string) => t === 'ANY' || !w.excluded_trades.includes(t as Trade);
+  const filteredCandidates = candidates.filter((w) => {
+    if (filterTrade && !w.preferred_trades.includes(filterTrade)) return false;
+    if (onlyNeeded && !neededTrades.some((t) => canFillTrade(w, t))) return false;
+    return true;
+  });
 
   const handleApprove = async () => {
     if (!requestId) return;
@@ -245,7 +292,7 @@ export default function ComposePage() {
             {selected.map((s) => {
               const w = candidates.find((c) => c.worker_id === s.worker_id)!;
               return (
-                <div key={s.worker_id} className="flex items-center gap-3 bg-white rounded p-2">
+                <div key={s.worker_id} className="flex flex-wrap items-center gap-2 bg-white rounded p-2">
                   <span className="font-medium text-sm text-gray-800 w-16">{w.name}</span>
                   <select value={s.assigned_trade}
                     onChange={(e) => updateMember(s.worker_id, 'assigned_trade', e.target.value)}
@@ -254,8 +301,8 @@ export default function ComposePage() {
                       <option key={t} value={t}>{TRADE_LABEL[t]}{w.preferred_trades.includes(t) ? ' ★' : ''}</option>
                     ))}
                   </select>
-                  <input type="text" inputMode="numeric" value={s.offered_wage || ''}
-                    onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); updateMember(s.worker_id, 'offered_wage', v ? Number(v) : 0); }}
+                  <input type="text" inputMode="numeric" value={commaInputValue(s.offered_wage)}
+                    onChange={(e) => updateMember(s.worker_id, 'offered_wage', parseDigits(e.target.value))}
                     className="w-28 border border-gray-300 rounded px-2 py-1 text-sm" />
                   <span className="text-xs text-gray-400">원</span>
                   <button onClick={() => setSelected(selected.filter((x) => x.worker_id !== s.worker_id))}
@@ -267,22 +314,40 @@ export default function ComposePage() {
         </div>
       )}
 
-      {/* 후보 테이블 */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
+      {/* 후보 필터 (D-18) */}
+      <div className="bg-white rounded-lg border border-gray-200 p-3 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-gray-500">후보 필터</span>
+        <select value={filterTrade} onChange={(e) => setFilterTrade(e.target.value as Trade | '')}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+          <option value="">전체 직종</option>
+          {ALL_TRADES.map((t) => (
+            <option key={t} value={t}>{TRADE_LABEL[t]} 희망</option>
+          ))}
+        </select>
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <input type="checkbox" checked={onlyNeeded} onChange={(e) => setOnlyNeeded(e.target.checked)}
+            className="rounded border-gray-300" />
+          부족 직종만
+        </label>
+        <span className="text-xs text-gray-400 ml-auto">{filteredCandidates.length}명 표시</span>
+      </div>
+
+      {/* 후보 테이블 (모바일: 가로 스크롤) */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+        <table className="w-full text-sm min-w-[560px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="w-10 px-4 py-3"></th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">이름</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">희망 직종</th>
-              <th className="text-center px-4 py-3 text-gray-500 font-medium">숙련</th>
+              <th className="text-center px-4 py-3 text-gray-500 font-medium">경력</th>
               <th className="text-right px-4 py-3 text-gray-500 font-medium">희망 일당</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">지역</th>
               <th className="text-center px-4 py-3 text-gray-500 font-medium">배치 가능</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {candidates.map((w) => {
+            {filteredCandidates.map((w) => {
               const excluded = isFullyExcluded(w);
               const declined = isDeclined(w);
               const blocked = excluded || declined;
@@ -305,11 +370,11 @@ export default function ComposePage() {
                   <td className="px-4 py-3 text-gray-600">
                     <div className="flex flex-wrap gap-1">
                       {w.preferred_trades.map((t) => (
-                        <span key={t} className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded">{TRADE_LABEL[t]}</span>
+                        <span key={t} className={`text-xs px-1.5 py-0.5 rounded ${tradeMeta(t).badge}`}>{tradeMeta(t).emoji} {tradeMeta(t).label}</span>
                       ))}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-center">{'★'.repeat(w.skill_level)}</td>
+                  <td className="px-4 py-3 text-center text-gray-600">{w.career_years}년차</td>
                   <td className="px-4 py-3 text-right text-gray-600">{w.desired_daily_wage.toLocaleString()}원</td>
                   <td className="px-4 py-3 text-gray-600">{w.region}</td>
                   <td className="px-4 py-3 text-center">

@@ -53,8 +53,9 @@ export type Trade =
   | 'MATERIAL_CARRY'
   | 'GENERAL';
 
-// 우선순위 레벨
-export type PriorityLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+// 우선순위 순위 (1=최우선, 3=최하위). cost/career/teamwork에 1·2·3을 중복 없이 배정.
+export type PriorityRank = 1 | 2 | 3;
+export type PriorityAxis = 'cost' | 'career' | 'teamwork';
 
 // === API 응답 형식 ===
 
@@ -93,7 +94,6 @@ export interface Worker {
   // 직종: 단일이 아닌 희망/비희망 복수 선택
   preferred_trades: Trade[];
   excluded_trades: Trade[];
-  skill_level: number;
   career_years: number;
   age: number;
   region: string;
@@ -101,6 +101,11 @@ export interface Worker {
   certifications: string[];
   completed_count: number;
   no_show_count: number;
+  // 평점(5점 만점 평균)·출근 수·배차완료 수 (본인/사무소 응답에 노출)
+  rating?: number | null;
+  rating_count?: number;
+  attended_count?: number;
+  dispatched_count?: number;
   current_crew_id: string | null;
   // 현재 배정 제안 정보 (NOTIFIED 상태일 때)
   current_offer?: {
@@ -130,15 +135,18 @@ export interface WorkHistoryEntry {
   completed_at: string;
 }
 
+// 요청 직종: 실제 직종 + 직종 무관(ANY). 근로자 직종에는 ANY를 쓰지 않는다.
+export type RequiredTrade = Trade | 'ANY';
+
 export interface RequiredWorker {
-  trade: Trade;
+  trade: RequiredTrade;
   count: number;
 }
 
 export interface Priority {
-  cost: PriorityLevel;
-  skill: PriorityLevel;
-  teamwork: PriorityLevel;
+  cost: PriorityRank;
+  career: PriorityRank;
+  teamwork: PriorityRank;
 }
 
 export interface WorkRequest {
@@ -156,15 +164,40 @@ export interface WorkRequest {
   status: WorkRequestStatus;
   rejection_reason?: string;
   declined_worker_ids?: string[];
+  company_name?: string; // office 화면에서 요청한 건설사 표시용
   created_at: string;
   updated_at: string;
+}
+
+// 근로자가 수락한 작업 이력 (대시보드)
+export interface AcceptedJob {
+  crew_id: string;
+  request_id: string;
+  site_name: string;
+  work_date: string;
+  start_time: string;
+  location_text: string;
+  assigned_trade: Trade;
+  offered_wage: number;
+  status: string;
+  accepted_at: string;
+}
+
+// 출근일 히트맵: work_date -> 출근 횟수
+export type AttendanceMap = Record<string, number>;
+
+// 경력 연차별 평균 희망 일당
+export interface WageStats {
+  career_years: number;
+  average_wage: number | null;
+  sample_count: number;
 }
 
 export interface CrewMember {
   worker_id: string;
   name: string;
   assigned_trade: Trade;
-  skill_level: number;
+  career_years: number;
   offered_wage: number;
   acceptance: AcceptanceStatus;
   notified_at?: string;
@@ -179,6 +212,7 @@ export interface Recommendation {
   total_cost: number;
   reason: string;
   considerations: string[];
+  fitness?: number; // 적합도(0~100). AI 추천안의 종합 매치 점수.
 }
 
 export interface Crew {
@@ -253,7 +287,6 @@ export interface WorkerApplicationRequest {
   office_id: string;
   preferred_trades: Trade[];
   excluded_trades: Trade[];
-  skill_level: number;
   career_years: number;
   age: number;
   region: string;

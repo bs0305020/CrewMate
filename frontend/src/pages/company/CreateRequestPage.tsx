@@ -2,21 +2,25 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api } from '../../api/client';
-import type { CreateWorkRequestPayload, Trade, PriorityLevel, RequiredWorker, WorkRequest, Office } from '../../api/types';
+import type { CreateWorkRequestPayload, Priority, PriorityAxis, PriorityRank, RequiredTrade, RequiredWorker, WorkRequest, Office } from '../../api/types';
+import { commaInputValue, parseDigits } from '../../lib/format';
 
-const TRADE_OPTIONS: { value: Trade; label: string }[] = [
-  { value: 'FORMWORK', label: '형틀목공' },
-  { value: 'REBAR', label: '철근공' },
-  { value: 'MASONRY', label: '조적공' },
-  { value: 'MATERIAL_CARRY', label: '자재운반' },
-  { value: 'GENERAL', label: '보통인부' },
+const TRADE_OPTIONS: { value: RequiredTrade; label: string }[] = [
+  { value: 'ANY', label: '🔀 직종 무관' },
+  { value: 'FORMWORK', label: '🪵 형틀목공' },
+  { value: 'REBAR', label: '🔩 철근공' },
+  { value: 'MASONRY', label: '🧱 조적공' },
+  { value: 'MATERIAL_CARRY', label: '📦 자재운반' },
+  { value: 'GENERAL', label: '👷 보통인부' },
 ];
 
-const PRIORITY_OPTIONS: { value: PriorityLevel; label: string }[] = [
-  { value: 'HIGH', label: '높음' },
-  { value: 'MEDIUM', label: '보통' },
-  { value: 'LOW', label: '낮음' },
-];
+const PRIORITY_META: Record<PriorityAxis, { label: string; icon: string; hint: string }> = {
+  cost: { label: '비용', icon: '💰', hint: '저렴한 조합' },
+  career: { label: '경력', icon: '🛠️', hint: '경력 우선' },
+  teamwork: { label: '팀워크', icon: '🤝', hint: '협업 이력' },
+};
+
+const DEFAULT_PRIORITY_ORDER: PriorityAxis[] = ['cost', 'career', 'teamwork'];
 
 export default function CreateRequestPage() {
   const navigate = useNavigate();
@@ -43,10 +47,26 @@ export default function CreateRequestPage() {
     location_text: '',
     budget: 500000,
     notes: '',
-    priority_cost: 'MEDIUM' as PriorityLevel,
-    priority_skill: 'MEDIUM' as PriorityLevel,
-    priority_teamwork: 'MEDIUM' as PriorityLevel,
   });
+
+  // 우선순위: 축의 순서 자체가 순위(왼쪽=1순위). 드래그/버튼으로 순서를 바꾼다.
+  const [priorityOrder, setPriorityOrder] = useState<PriorityAxis[]>(DEFAULT_PRIORITY_ORDER);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  const movePriority = (from: number, to: number) => {
+    setPriorityOrder((prev) => {
+      if (to < 0 || to >= prev.length || from === to) return prev;
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
+  const handleDrop = (idx: number) => {
+    if (dragIndex !== null) movePriority(dragIndex, idx);
+    setDragIndex(null);
+  };
 
   const [requiredWorkers, setRequiredWorkers] = useState<RequiredWorker[]>([
     { trade: 'FORMWORK', count: 1 },
@@ -63,7 +83,7 @@ export default function CreateRequestPage() {
   const updateWorkerRow = (idx: number, field: keyof RequiredWorker, value: string | number) => {
     const updated = [...requiredWorkers];
     if (field === 'trade') {
-      updated[idx] = { ...updated[idx], trade: value as Trade };
+      updated[idx] = { ...updated[idx], trade: value as RequiredTrade };
     } else {
       updated[idx] = { ...updated[idx], count: Number(value) };
     }
@@ -85,6 +105,12 @@ export default function CreateRequestPage() {
 
     setLoading(true);
 
+    // 순서 → 순위(1=최우선). 왼쪽부터 1·2·3.
+    const priority = priorityOrder.reduce((acc, axis, i) => {
+      acc[axis] = (i + 1) as PriorityRank;
+      return acc;
+    }, {} as Priority);
+
     const payload: CreateWorkRequestPayload = {
       office_id: officeId,
       site_name: form.site_name,
@@ -93,11 +119,7 @@ export default function CreateRequestPage() {
       location_text: form.location_text,
       required_workers: requiredWorkers,
       budget: form.budget,
-      priority: {
-        cost: form.priority_cost,
-        skill: form.priority_skill,
-        teamwork: form.priority_teamwork,
-      },
+      priority,
       notes: form.notes,
     };
 
@@ -249,57 +271,62 @@ export default function CreateRequestPage() {
             type="text"
             inputMode="numeric"
             required
-            value={form.budget || ''}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9]/g, '');
-              setForm({ ...form, budget: v ? Number(v) : 0 });
-            }}
+            value={commaInputValue(form.budget)}
+            onChange={(e) => setForm({ ...form, budget: parseDigits(e.target.value) })}
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            placeholder="500000"
+            placeholder="500,000"
           />
           <p className="text-xs text-gray-400 mt-1">{form.budget ? form.budget.toLocaleString() + '원' : ''}</p>
         </div>
 
-        {/* 우선순위 */}
+        {/* 우선순위 (드래그로 순서 변경: 왼쪽일수록 우선) */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">우선순위</label>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">비용</label>
-              <select
-                value={form.priority_cost}
-                onChange={(e) => setForm({ ...form, priority_cost: e.target.value as PriorityLevel })}
-                className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              >
-                {PRIORITY_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">숙련도</label>
-              <select
-                value={form.priority_skill}
-                onChange={(e) => setForm({ ...form, priority_skill: e.target.value as PriorityLevel })}
-                className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              >
-                {PRIORITY_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">팀워크</label>
-              <select
-                value={form.priority_teamwork}
-                onChange={(e) => setForm({ ...form, priority_teamwork: e.target.value as PriorityLevel })}
-                className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              >
-                {PRIORITY_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
-            </div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">우선순위</label>
+          <p className="text-xs text-gray-400 mb-2">카드를 드래그하거나 화살표로 순서를 바꾸세요. 왼쪽일수록 AI 편성에서 더 크게 반영됩니다.</p>
+          <div className="flex gap-2">
+            {priorityOrder.map((axis, idx) => {
+              const meta = PRIORITY_META[axis];
+              return (
+                <div
+                  key={axis}
+                  draggable
+                  onDragStart={() => setDragIndex(idx)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleDrop(idx)}
+                  onDragEnd={() => setDragIndex(null)}
+                  className={`flex-1 cursor-move select-none rounded-lg border p-3 text-center transition-colors ${
+                    dragIndex === idx
+                      ? 'border-orange-400 bg-orange-50 opacity-60'
+                      : 'border-gray-300 bg-white hover:border-orange-300'
+                  }`}
+                >
+                  <div className="text-xs font-semibold text-orange-600">{idx + 1}순위</div>
+                  <div className="text-2xl leading-none mt-1">{meta.icon}</div>
+                  <div className="text-sm font-medium text-gray-800 mt-1">{meta.label}</div>
+                  <div className="text-[11px] text-gray-400">{meta.hint}</div>
+                  <div className="mt-2 flex justify-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => movePriority(idx, idx - 1)}
+                      disabled={idx === 0}
+                      aria-label="앞으로"
+                      className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-30"
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => movePriority(idx, idx + 1)}
+                      disabled={idx === priorityOrder.length - 1}
+                      aria-label="뒤로"
+                      className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-30"
+                    >
+                      →
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

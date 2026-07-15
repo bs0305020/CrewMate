@@ -17,11 +17,12 @@ const STATUS_CONFIG: Record<WorkRequestStatus, { label: string; color: string }>
 };
 
 const TRADE_LABEL: Record<string, string> = {
-  FORMWORK: '형틀목공',
-  REBAR: '철근공',
-  MASONRY: '조적공',
-  MATERIAL_CARRY: '자재운반',
-  GENERAL: '보통인부',
+  FORMWORK: '🪵 형틀목공',
+  REBAR: '🔩 철근공',
+  MASONRY: '🧱 조적공',
+  MATERIAL_CARRY: '📦 자재운반',
+  GENERAL: '👷 보통인부',
+  ANY: '🔀 직종 무관',
 };
 
 export default function CompanyHomePage() {

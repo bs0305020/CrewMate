@@ -152,6 +152,10 @@ class Trade:
 
     ALL = frozenset({FORMWORK, REBAR, MASONRY, MATERIAL_CARRY, GENERAL})
 
+    # 요청(required_workers) 전용 마커: 직종 무관. 근로자 preferred/excluded_trades 에는 쓰지 않는다.
+    ANY = "ANY"
+    REQUIRED_ALL = frozenset({FORMWORK, REBAR, MASONRY, MATERIAL_CARRY, GENERAL, ANY})
+
 
 # ---------------------------------------------------------------------------
 # 사용자 역할

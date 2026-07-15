@@ -79,7 +79,6 @@ def generate_workers(num_workers: int = 60) -> list[dict[str, Any]]:
             office_id=office_id,
             preferred_trades=prefs,
             excluded_trades=excluded,
-            skill_level=random.randint(1, 5),
             career_years=random.randint(0, 25),
             age=random.randint(20, 63),
             region=random.choice(REGIONS),
@@ -108,8 +107,8 @@ def generate_requests(num_requests: int = 7) -> list[dict[str, Any]]:
             location_text=_fake.address().replace("\n", " "),
             required_workers=required,
             budget=total * random.randrange(150000, 200000, 10000),
-            priority={"cost": "HIGH", "skill": "MEDIUM", "teamwork": "MEDIUM"},
-            notes=random.choice(["비용 우선", "숙련 우선", ""]),
+            priority=dict(zip(("cost", "career", "teamwork"), random.sample([1, 2, 3], 3))),
+            notes=random.choice(["비용 우선", "경력 우선", ""]),
         )
         requests.append(req)
     return requests

@@ -38,6 +38,9 @@ def worker_entry(
     current_crew_id: Any = _SENTINEL,
     inc_dispatched: bool = False,
     inc_completed: bool = False,
+    inc_attended: bool = False,
+    dec_dispatched: bool = False,
+    add_rating: int | None = None,
     require_no_offer: bool = False,
 ) -> dict[str, Any]:
     """Workers 테이블 조건부 Update 엔트리.
@@ -72,6 +75,17 @@ def worker_entry(
         values[":one"] = ser(1)
     if inc_completed:
         add_parts.append("completed_count :one")
+        values[":one"] = ser(1)
+    if inc_attended:
+        add_parts.append("attended_count :one")
+        values[":one"] = ser(1)
+    if dec_dispatched:
+        add_parts.append("dispatched_count :neg_one")
+        values[":neg_one"] = ser(-1)
+    if add_rating is not None:
+        add_parts.append("rating_sum :rating")
+        add_parts.append("rating_count :one")
+        values[":rating"] = ser(int(add_rating))
         values[":one"] = ser(1)
 
     update_expr = "SET " + ", ".join(set_parts)

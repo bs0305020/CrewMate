@@ -1,7 +1,7 @@
 """``get_worker_history`` — 읽기 전용 Agent Tool (계약 v2).
 
 지정 근로자들의 제한된 작업/협업 이력을 반환한다. 개인정보(name/phone 등)와
-성실도·부정 신호는 반환하지 않는다 (판단용 중립 신호만: 숙련도/경력/자격/협업 횟수).
+성실도·부정 신호는 반환하지 않는다 (판단용 중립 신호만: 경력/자격/협업 횟수).
 
 작업/협업 이력은 Assignments GSI1 에서 유도한다 (별도 테이블 없음).
 """
@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Sequence
 
 from ._shared import resolve_db, tool
 
-_JUDGMENT_FIELDS = ("skill_level", "career_years", "certifications")
+_JUDGMENT_FIELDS = ("career_years", "certifications")
 
 
 def _read_worker_history(worker_ids: Sequence[str], *, db: Any = None) -> Dict[str, Any]:
@@ -62,7 +62,7 @@ def get_worker_history(worker_ids: List[str]) -> Dict[str, Any]:
         worker_ids: 이력을 조회할 근로자 목록.
 
     Returns:
-        {workers: [{worker_id, skill_level, career_years, certifications, collaboration_count}],
+        {workers: [{worker_id, career_years, certifications, collaboration_count}],
          collaboration_pairs: [{worker_a, worker_b, count}]}.
     """
     return _read_worker_history(worker_ids)

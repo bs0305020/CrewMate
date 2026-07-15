@@ -15,11 +15,11 @@ const STATE_CONFIG: Record<WorkerState, { label: string; color: string; bgColor:
 };
 
 const TRADE_LABEL: Record<string, string> = {
-  FORMWORK: '형틀목공',
-  REBAR: '철근공',
-  MASONRY: '조적공',
-  MATERIAL_CARRY: '자재운반',
-  GENERAL: '보통인부',
+  FORMWORK: '🪵 형틀목공',
+  REBAR: '🔩 철근공',
+  MASONRY: '🧱 조적공',
+  MATERIAL_CARRY: '📦 자재운반',
+  GENERAL: '👷 보통인부',
 };
 
 export default function WorkerHomePage() {
@@ -76,6 +76,15 @@ export default function WorkerHomePage() {
     else if (!res.success) toast.error(res.error.message);
   };
 
+  const handleCancelReservation = async () => {
+    if (!confirm('배차를 취소하시겠습니까?\n취소 시 다시 대기 상태로 전환되며, 인력사무소에 재편성이 요청됩니다.')) return;
+    setActionLoading(true);
+    const res = await api.post('/worker/reservation/cancel');
+    setActionLoading(false);
+    if (res.success) { toast.success('배차를 취소했습니다.'); refetch(); }
+    else toast.error(res.error.message);
+  };
+
   if (!worker) {
     return (
       <div className="max-w-lg mx-auto">
@@ -126,9 +135,23 @@ export default function WorkerHomePage() {
               {actionLoading ? '처리 중...' : '대기 취소'}
             </button>
           )}
-          {worker.state === 'RESERVED' && (
-            <p className="text-sm text-blue-600">배차 완료! 작업 시간에 현장으로 출근해주세요.</p>
-          )}
+          {worker.state === 'RESERVED' && (() => {
+            const offer = worker.current_offer;
+            const startMs = offer ? new Date(`${offer.work_date}T${offer.start_time || '00:00'}:00`).getTime() : NaN;
+            const canCancel = !Number.isNaN(startMs) && startMs - Date.now() >= 24 * 60 * 60 * 1000;
+            return (
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-sm text-blue-600">배차 완료! 작업 시간에 현장으로 출근해주세요.</p>
+                <button onClick={handleCancelReservation} disabled={actionLoading || !canCancel}
+                  className="bg-white border border-red-300 text-red-600 px-5 py-2 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  {actionLoading ? '처리 중...' : '배차 취소'}
+                </button>
+                {!canCancel && (
+                  <p className="text-xs text-gray-400">작업 시작 24시간 이전에만 취소할 수 있습니다.</p>
+                )}
+              </div>
+            );
+          })()}
           {worker.state === 'RUNNING' && (
             <button onClick={() => navigate('/worker/assignments')}
               className="bg-orange-600 text-white px-6 py-2.5 rounded-md text-sm font-medium hover:bg-orange-700 transition-colors">
@@ -255,10 +278,27 @@ export default function WorkerHomePage() {
           <button onClick={() => navigate('/worker/history')}
             className="text-xs text-green-600 hover:underline">이력 보기 →</button>
         </div>
-        <div className="text-center">
-          <p className="text-2xl font-bold text-gray-800">{worker.completed_count}</p>
-          <p className="text-xs text-gray-500">완료 작업</p>
+        <div className="grid grid-cols-4 gap-2 text-center">
+          <div>
+            <p className="text-2xl font-bold text-yellow-500">
+              {worker.rating != null ? `★${worker.rating}` : '-'}
+            </p>
+            <p className="text-xs text-gray-500">평점</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-800">{worker.attended_count ?? 0}</p>
+            <p className="text-xs text-gray-500">출근</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-800">{worker.dispatched_count ?? 0}</p>
+            <p className="text-xs text-gray-500">배차완료</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-800">{worker.completed_count}</p>
+            <p className="text-xs text-gray-500">완료</p>
+          </div>
         </div>
+        <p className="text-[11px] text-gray-400 mt-2 text-center">배차완료는 작업 24시간 이전에 취소한 건은 제외됩니다.</p>
       </div>
     </div>
   );

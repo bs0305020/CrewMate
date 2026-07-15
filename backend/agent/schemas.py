@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
     "Priority",
@@ -62,11 +62,24 @@ class _StrictModel(BaseModel):
 # Agent input schema (design.md → "Agent 입력 스키마")                          #
 # --------------------------------------------------------------------------- #
 class Priority(_StrictModel):
-    """Request priority weights across the three composition factors."""
+    """Request priority ranking across the three composition factors.
 
-    cost: Literal["LOW", "MEDIUM", "HIGH"]
-    skill: Literal["LOW", "MEDIUM", "HIGH"]
-    teamwork: Literal["LOW", "MEDIUM", "HIGH"]
+    Each axis holds its rank: 1 = 최우선(highest priority), 3 = 최하위(lowest).
+    The three ranks must be a permutation of 1/2/3 (each used exactly once).
+    """
+
+    cost: int = Field(ge=1, le=3)
+    career: int = Field(ge=1, le=3)
+    teamwork: int = Field(ge=1, le=3)
+
+    @model_validator(mode="after")
+    def _ranks_are_distinct(self) -> "Priority":
+        if sorted((self.cost, self.career, self.teamwork)) != [1, 2, 3]:
+            raise ValueError(
+                "priority ranks must be a permutation of 1, 2, 3 "
+                "(cost/career/teamwork each assigned a distinct rank)"
+            )
+        return self
 
 
 class TradeRequirement(_StrictModel):
@@ -94,7 +107,6 @@ class Candidate(_StrictModel):
     worker_id: str
     preferred_trades: list[str] = []
     excluded_trades: list[str] = []
-    skill_level: int = Field(ge=1, le=5)  # 1 ~ 5
     desired_daily_wage: int = Field(gt=0)
     certifications: list[str] = []
     career_years: int

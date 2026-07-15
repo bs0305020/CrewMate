@@ -80,7 +80,7 @@ def build_demo():
             user_id=f"demo-user-{wid}", worker_id=wid, name=name,
             phone="010-1234-5678", office_id=OFFICE_ID,
             preferred_trades=["GENERAL"], excluded_trades=[],
-            skill_level=3, career_years=5, age=40,
+            career_years=5, age=40,
             region="부산 해운대구", desired_daily_wage=150000,
             state=state, completed_count=completed, dispatched_count=dispatched,
         )
@@ -94,7 +94,7 @@ def build_demo():
         site_name="해운대 데모 현장", work_date="2026-07-15", start_time="07:00",
         location_text="부산 해운대구 센텀로 100",
         required_workers=[{"trade": "GENERAL", "count": 3}],
-        budget=450000, priority={"cost": "HIGH", "skill": "MEDIUM", "teamwork": "MEDIUM"},
+        budget=450000, priority={"cost": 1, "career": 2, "teamwork": 3},
         notes="데모 시나리오", request_id=REQUEST_ID, status=RequestStatus.RUNNING,
     )
     requests.append(req)

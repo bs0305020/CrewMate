@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api } from '../../api/client';
-import type { Worker, WorkerApplicationRequest, Trade, Office } from '../../api/types';
+import type { Worker, WorkerApplicationRequest, Trade, Office, WageStats } from '../../api/types';
+import { commaInputValue, parseDigits } from '../../lib/format';
 
 const TRADE_OPTIONS: { value: Trade; label: string }[] = [
-  { value: 'FORMWORK', label: '형틀목공' },
-  { value: 'REBAR', label: '철근공' },
-  { value: 'MASONRY', label: '조적공' },
-  { value: 'MATERIAL_CARRY', label: '자재운반' },
-  { value: 'GENERAL', label: '보통인부' },
+  { value: 'FORMWORK', label: '🪵 형틀목공' },
+  { value: 'REBAR', label: '🔩 철근공' },
+  { value: 'MASONRY', label: '🧱 조적공' },
+  { value: 'MATERIAL_CARRY', label: '📦 자재운반' },
+  { value: 'GENERAL', label: '👷 보통인부' },
 ];
 
 export default function ApplicationPage() {
@@ -23,7 +24,6 @@ export default function ApplicationPage() {
     office_id: '',
     preferred_trades: [],
     excluded_trades: [],
-    skill_level: 3,
     career_years: 0,
     age: 20,
     region: '',
@@ -32,6 +32,22 @@ export default function ApplicationPage() {
     introduction: '',
   });
   const [certInput, setCertInput] = useState('');
+  const [wageStat, setWageStat] = useState<WageStats | null>(null);
+
+  // 경력 연차별 평균 희망 일당 안내 (직종 무관)
+  useEffect(() => {
+    const years = form.career_years;
+    if (years === null || years === undefined || Number.isNaN(years) || years < 0) {
+      setWageStat(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const res = await api.get<WageStats>(`/worker/wage-stats/${years}`);
+      if (!cancelled && res.success) setWageStat(res.data);
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [form.career_years]);
 
   useEffect(() => {
     (async () => {
@@ -53,7 +69,6 @@ export default function ApplicationPage() {
           office_id: w.office_id,
           preferred_trades: w.preferred_trades,
           excluded_trades: w.excluded_trades,
-          skill_level: w.skill_level,
           career_years: w.career_years,
           age: w.age,
           region: w.region,
@@ -195,14 +210,6 @@ export default function ApplicationPage() {
           </div>
         </div>
 
-        {/* 숙련도 */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">숙련도 * <span className="text-gray-400">(1~5)</span></label>
-          <input type="number" min={1} max={5} required value={form.skill_level}
-            onChange={(e) => setForm({ ...form, skill_level: Number(e.target.value) })}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-        </div>
-
         {/* 경력 */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">경력 (년) *</label>
@@ -228,18 +235,22 @@ export default function ApplicationPage() {
             placeholder="부산 해운대구" />
         </div>
 
-        {/* 희망 일당 — 직접 입력 */}
+        {/* 희망 일당 — 직접 입력 (3자리 콤마 자동) */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">희망 일당 (원) *</label>
           <input type="text" inputMode="numeric" required
-            value={form.desired_daily_wage || ''}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9]/g, '');
-              setForm({ ...form, desired_daily_wage: v ? Number(v) : 0 });
-            }}
+            value={commaInputValue(form.desired_daily_wage)}
+            onChange={(e) => setForm({ ...form, desired_daily_wage: parseDigits(e.target.value) })}
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            placeholder="180000" />
-          <p className="text-xs text-gray-400 mt-1">{form.desired_daily_wage ? form.desired_daily_wage.toLocaleString() + '원' : ''}</p>
+            placeholder="180,000" />
+          {wageStat && wageStat.average_wage != null && wageStat.sample_count > 0 ? (
+            <p className="text-xs text-green-600 mt-1">
+              💡 경력 {wageStat.career_years}년차 지원자의 평균 희망 금액은 <span className="font-semibold">{wageStat.average_wage.toLocaleString()}원</span>입니다.
+              <span className="text-gray-400"> (직종 무관 {wageStat.sample_count}명 기준)</span>
+            </p>
+          ) : (
+            <p className="text-xs text-gray-400 mt-1">{form.desired_daily_wage ? form.desired_daily_wage.toLocaleString() + '원' : ''}</p>
+          )}
         </div>
 
         {/* 자격증 */}

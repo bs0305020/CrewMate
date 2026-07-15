@@ -8,15 +8,20 @@ Route:
   POST /worker/state/inactive    대기 취소 (READY -> INACTIVE)
   POST /worker/offer/accept      제안 수락 (트랜잭션 2, body: eta?)
   POST /worker/offer/decline     제안 거절 (트랜잭션 3)
+  POST /worker/reservation/cancel 배차완료(RESERVED) 취소 (작업 24시간 전까지)
   GET  /worker/assignments       내 배정 조회
+  GET  /worker/accepted-jobs     내가 수락한 작업 이력
+  GET  /worker/attendance        출근일 집계 (히트맵용)
+  GET  /worker/wage-stats/{careerYears}  경력 연차별 평균 희망 일당
   GET  /worker/history           작업 이력 (Assignments GSI1)
 
 자가 등록 근로자는 worker_id = user_id(cognito sub)로 생성한다.
-성실도(completed/dispatched)는 본인 응답에 노출하지 않는다 (인력사무소 한정).
+평점(rating)·출근 수(attended)·배차완료 수(dispatched)는 본인 응답에 노출한다.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from botocore.exceptions import ClientError
@@ -27,11 +32,11 @@ from shared.responses import ApiError, ErrorCode, success
 from shared.routing import Router
 from shared.schemas import (
     build_worker,
+    clean,
     new_id,
     now_iso,
     parse_body,
     require_fields,
-    validate_skill_level,
     validate_trades,
     work_history_entry,
     worker_self_view,
@@ -53,7 +58,6 @@ _EDITABLE_FIELDS = (
     "phone",
     "preferred_trades",
     "excluded_trades",
-    "skill_level",
     "career_years",
     "age",
     "region",
@@ -89,7 +93,7 @@ def create_application(event, principal: Principal, _params):
     body = parse_body(event)
     require_fields(
         body,
-        ["name", "phone", "office_id", "preferred_trades", "skill_level",
+        ["name", "phone", "office_id", "preferred_trades",
          "career_years", "age", "region", "desired_daily_wage"],
     )
     preferred = validate_trades(body.get("preferred_trades"), "preferred_trades")
@@ -106,7 +110,6 @@ def create_application(event, principal: Principal, _params):
         office_id=body["office_id"],
         preferred_trades=preferred,
         excluded_trades=excluded,
-        skill_level=body["skill_level"],
         career_years=int(body["career_years"]),
         age=int(body["age"]),
         region=body["region"],
@@ -140,8 +143,6 @@ def update_application(event, principal: Principal, _params):
         updates["preferred_trades"] = validate_trades(updates["preferred_trades"], "preferred_trades")
     if "excluded_trades" in updates:
         updates["excluded_trades"] = validate_trades(updates["excluded_trades"], "excluded_trades")
-    if "skill_level" in updates:
-        updates["skill_level"] = validate_skill_level(updates["skill_level"])
     for int_field in ("career_years", "age", "desired_daily_wage"):
         if int_field in updates:
             updates[int_field] = int(updates[int_field])
@@ -438,6 +439,164 @@ def get_history(_event, principal: Principal, _params):
     principal.require_role(Role.WORKER)
     worker = _load_own_worker(principal)
     return success(_completed_history(worker["worker_id"]))
+
+
+# ---------------------------------------------------------------------------
+# 배차완료(RESERVED) 취소 — 작업 시작 24시간 전까지만 (C-8)
+# ---------------------------------------------------------------------------
+def _work_start_dt(src: dict[str, Any] | None) -> datetime | None:
+    """work_date(+start_time)를 UTC datetime으로 파싱. 실패 시 None."""
+    src = src or {}
+    work_date = src.get("work_date")
+    start_time = src.get("start_time") or "00:00"
+    if not work_date:
+        return None
+    try:
+        return datetime.fromisoformat(f"{work_date}T{start_time}:00+00:00")
+    except (ValueError, TypeError):
+        return None
+
+
+@router.route("POST", "/worker/reservation/cancel")
+def cancel_reservation(_event, principal: Principal, _params):
+    principal.require_role(Role.WORKER)
+    worker = _load_own_worker(principal)
+    if worker["state"] != WorkerState.RESERVED:
+        raise ApiError(ErrorCode.STATE_CONFLICT, "배차완료(RESERVED) 상태에서만 취소할 수 있습니다.")
+
+    offer = worker.get("current_offer") or {}
+    crew_id = offer.get("crew_id") or worker.get("current_crew_id")
+    crew = db.get_crew(crew_id) if crew_id else None
+    request_id = crew["request_id"] if crew else offer.get("request_id")
+    request = db.get_request(request_id) if request_id else None
+
+    # 24시간 규칙: 작업 시작 24시간 이내에는 취소 불가.
+    start_dt = _work_start_dt(offer if offer.get("work_date") else request)
+    if start_dt is not None and (start_dt - datetime.now(timezone.utc)) < timedelta(hours=24):
+        raise ApiError(ErrorCode.STATE_CONFLICT, "작업 시작 24시간 이내에는 취소할 수 없습니다.")
+
+    now = now_iso()
+    gap = build_gap_event_stub(worker, crew, request_id)
+    entries = [
+        txn.worker_entry(
+            worker["worker_id"], now=now, to_state=WorkerState.READY,
+            from_states=[WorkerState.RESERVED],
+            current_offer=None, current_crew_id=None,
+            dec_dispatched=True,   # 24시간 이전 취소는 배차완료 카운트에서 제외
+        ),
+    ]
+    if crew_id:
+        entries.append(txn.assignment_update_entry(
+            crew_id, worker["worker_id"], now=now,
+            acceptance=Acceptance.DECLINED, status=AssignmentStatus.CANCELLED,
+        ))
+    if gap is not None:
+        entries.append(txn.put_entry("gap_events", gap))
+    if request_id:
+        entries.append(txn.request_status_entry(
+            request_id, to_status=RequestStatus.COMPOSING, now=now,
+            extra_set={"declined_worker_ids": _append_declined(request_id, worker["worker_id"])},
+        ))
+    try:
+        txn.run(entries)
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in ("TransactionCanceledException", "ConditionalCheckFailedException"):
+            raise ApiError(ErrorCode.STATE_CONFLICT, "상태가 변경되어 취소할 수 없습니다.")
+        raise
+
+    if crew:
+        office = db.get_office(crew["office_id"]) or {}
+        _notify_office(office, request, worker)
+    return success(worker_self_view(db.get_worker(worker["worker_id"])))
+
+
+def _notify_office(office, request, worker):
+    from shared.schemas import build_notification
+    user_id = office.get("owner_user_id") or office.get("office_id")
+    if not user_id:
+        return
+    try:
+        db.put_notification(build_notification(
+            user_id=user_id, type="GAP_EVENT", title="배차 취소",
+            message=f"{worker.get('name', '')}님이 배차를 취소했습니다. 재편성이 필요합니다.",
+        ))
+    except ClientError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# 내가 수락한 작업 이력 (C-12)
+# ---------------------------------------------------------------------------
+@router.route("GET", "/worker/accepted-jobs")
+def get_accepted_jobs(_event, principal: Principal, _params):
+    principal.require_role(Role.WORKER)
+    worker = _load_own_worker(principal)
+    jobs = []
+    for a in db.query_worker_assignments(worker["worker_id"], limit=200):
+        if a.get("acceptance") != Acceptance.ACCEPTED:
+            continue
+        crew = db.get_crew(a["crew_id"])
+        req = db.get_request(crew["request_id"]) if crew else None
+        jobs.append({
+            "crew_id": a.get("crew_id"),
+            "request_id": (req or {}).get("request_id"),
+            "site_name": (req or {}).get("site_name"),
+            "work_date": (req or {}).get("work_date"),
+            "start_time": (req or {}).get("start_time"),
+            "location_text": (req or {}).get("location_text"),
+            "assigned_trade": a.get("assigned_trade"),
+            "offered_wage": clean(a.get("offered_wage")),
+            "status": a.get("status"),
+            "accepted_at": a.get("updated_at") or a.get("created_at"),
+        })
+    return success(jobs)
+
+
+# ---------------------------------------------------------------------------
+# 출근일 집계 — 히트맵(잔디)용 (C-13)
+#   출근(체크인)한 날만 집계: RUNNING/COMPLETED/LEFT_SITE. 노쇼/거절/취소는 제외.
+# ---------------------------------------------------------------------------
+_ATTENDED_STATUSES = {AssignmentStatus.RUNNING, AssignmentStatus.COMPLETED, AssignmentStatus.LEFT_SITE}
+
+
+@router.route("GET", "/worker/attendance")
+def get_attendance(_event, principal: Principal, _params):
+    principal.require_role(Role.WORKER)
+    worker = _load_own_worker(principal)
+    counts: dict[str, int] = {}
+    for a in db.query_worker_assignments(worker["worker_id"], limit=400):
+        if a.get("status") not in _ATTENDED_STATUSES:
+            continue
+        crew = db.get_crew(a["crew_id"])
+        req = db.get_request(crew["request_id"]) if crew else None
+        work_date = (req or {}).get("work_date")
+        if work_date:
+            counts[work_date] = counts.get(work_date, 0) + 1
+    return success(counts)
+
+
+# ---------------------------------------------------------------------------
+# 경력 연차별 평균 희망 일당 (C-10) — 직종 무관, 동일 연차 지원자 평균
+# ---------------------------------------------------------------------------
+@router.route("GET", "/worker/wage-stats/{careerYears}")
+def wage_stats(_event, principal: Principal, params):
+    principal.require_role(Role.WORKER)
+    try:
+        years = int(params.get("careerYears"))
+    except (TypeError, ValueError):
+        raise ApiError(ErrorCode.VALIDATION_ERROR, "career_years(정수)가 필요합니다.")
+    wages = [
+        int(w.get("desired_daily_wage", 0))
+        for w in db.scan_workers()
+        if int(w.get("career_years", -1)) == years and int(w.get("desired_daily_wage", 0)) > 0
+    ]
+    if not wages:
+        return success({"career_years": years, "average_wage": None, "sample_count": 0})
+    return success({
+        "career_years": years,
+        "average_wage": round(sum(wages) / len(wages)),
+        "sample_count": len(wages),
+    })
 
 
 def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
