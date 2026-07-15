@@ -25,7 +25,10 @@ samconfig.toml
 packaged.yaml
 
 # 환경/시크릿
+# 환경/시크릿 (실제 환경파일은 추적하지 않고 예시만 커밋)
 .env
+.env.*
+!.env.example
 *.local
 
 # OS/IDE

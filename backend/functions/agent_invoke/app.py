@@ -158,67 +158,120 @@ def _recommend(candidates, needed_trades, budget) -> list[dict[str, Any]]:
     return _greedy(candidates, needed_trades, budget)
 
 
-def _try_llm(candidates, needed_trades, budget):
-    """Strands+Bedrock 추천 (1회 재시도). 미가용/오류 시 None."""
-    try:
-        from agent.crew_agent import BedrockUnavailable, compose  # noqa: F401
-        from agent.schemas import AgentInput, Candidate, Priority, RequestSpec, TradeRequirement
-    except Exception:  # noqa: BLE001 - SDK/스키마 미가용
-        return None
+_BEDROCK_SYSTEM = (
+    "당신은 건설 일용직 작업조 편성 추천 AI입니다. 제공된 후보 근로자만으로 요청 직종·인원을 "
+    "정확히 충족하는 작업조 조합을 1~3개 추천합니다.\n"
+    "규칙(엄수): (1) 후보 목록 밖 worker_id 생성 금지. (2) 각 멤버의 assigned_trade는 그 근로자의 "
+    "excluded_trades에 포함되면 안 됨(가능하면 preferred_trades 내에서 배정). (3) 필요 직종별 인원을 "
+    "정확히 충족(미달·초과 금지). (4) 한 추천 안에서 worker_id 중복 금지. (5) offered_wage 합이 예산 이내. "
+    "(6) 사유는 업무 정보 중심, 특정 근로자 부정 평가·확률 수치·최적 보장 표현 금지.\n"
+    "출력은 아래 JSON 하나만. 다른 텍스트·코드펜스 금지:\n"
+    '{"recommendations":[{"members":[{"worker_id":"..","assigned_trade":".."'
+    ',"offered_wage":0}],"reason":"..","considerations":["..",".."]}]}'
+)
 
-    timeout_s = float(os.environ.get("AGENT_INVOKE_TIMEOUT_S", "25"))
+
+def _try_llm(candidates, needed_trades, budget):
+    """Amazon Bedrock(boto3 converse) 직접 호출로 추천 생성. 미가용/오류 시 None → 결정론 폴백.
+
+    Strands/pydantic 등 네이티브 의존성 없이 Lambda 런타임의 boto3만 사용한다(레이어·Docker 불필요).
+    """
+    import json as _json
+    from collections import Counter
+
     try:
-        cand_models = [
-            Candidate(
-                worker_id=w["worker_id"],
-                preferred_trades=list(w.get("preferred_trades") or []),
-                excluded_trades=list(w.get("excluded_trades") or []),
-                skill_level=int(w.get("skill_level", 1)),
-                desired_daily_wage=int(w.get("desired_daily_wage", 1)),
-                certifications=list(w.get("certifications") or []),
-                career_years=int(w.get("career_years", 0)),
-            )
-            for w in candidates
-        ]
-        req = RequestSpec(
-            request_id="compose",
-            required_workers=[TradeRequirement(trade=t, count=needed_trades.count(t))
-                              for t in dict.fromkeys(needed_trades)],
-            budget=budget if budget > 0 else 100_000_000,
-            priority=Priority(cost="MEDIUM", skill="MEDIUM", teamwork="MEDIUM"),
-            site="", work_date="", start_time="",
-        )
-        agent_input = AgentInput(mode="NORMAL", request=req, fixed_members=[],
-                                 candidates=cand_models, collaboration_pairs=[])
+        import boto3
+        from botocore.config import Config
     except Exception:  # noqa: BLE001
         return None
 
-    for attempt in range(2):
-        try:
-            output = compose(agent_input, timeout_s=timeout_s)
-        except Exception:  # noqa: BLE001 - Bedrock 미가용/파싱 실패
-            return None
-        recs = _llm_output_to_recs(output, candidates)
-        if recs:
-            return recs
-    return None
+    model_id = os.environ.get("CREW_AGENT_MODEL_ID")
+    if not model_id:
+        return None
+    region = os.environ.get("CREW_AGENT_REGION") or os.environ.get("AWS_REGION") or "ap-northeast-2"
+    timeout_s = float(os.environ.get("AGENT_INVOKE_TIMEOUT_S", "25"))
+
+    need = Counter(needed_trades)
+    cand_summary = [
+        {
+            "worker_id": w["worker_id"],
+            "preferred_trades": list(w.get("preferred_trades") or []),
+            "excluded_trades": list(w.get("excluded_trades") or []),
+            "skill_level": int(w.get("skill_level", 1)),
+            "desired_daily_wage": int(w.get("desired_daily_wage", 0)),
+            "career_years": int(w.get("career_years", 0)),
+        }
+        for w in candidates
+    ]
+    user_msg = _json.dumps(
+        {
+            "required_workers": [{"trade": t, "count": c} for t, c in need.items()],
+            "budget": budget if budget and budget > 0 else None,
+            "candidates": cand_summary,
+        },
+        ensure_ascii=False,
+    )
+
+    try:
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=region,
+            config=Config(read_timeout=timeout_s, connect_timeout=5, retries={"max_attempts": 0}),
+        )
+        resp = client.converse(
+            modelId=model_id,
+            system=[{"text": _BEDROCK_SYSTEM}],
+            messages=[{"role": "user", "content": [{"text": user_msg}]}],
+            inferenceConfig={"maxTokens": 1500, "temperature": 0.2},
+        )
+        text = "".join(
+            block.get("text", "")
+            for block in resp["output"]["message"]["content"]
+            if isinstance(block, dict)
+        )
+    except Exception:  # noqa: BLE001 - Bedrock 미가용/타임아웃/권한
+        logger.info("bedrock_unavailable_fallback_deterministic")
+        return None
+
+    return _parse_llm_recs(text, candidates)
 
 
-def _llm_output_to_recs(output, candidates):
+def _parse_llm_recs(text, candidates):
+    """모델 텍스트에서 JSON을 추출·파싱하여 추천 리스트로 변환한다."""
+    import json as _json
+
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw[:4].lower() == "json":
+            raw = raw[4:]
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end < 0:
+        return None
+    try:
+        data = _json.loads(raw[start:end + 1])
+    except (ValueError, TypeError):
+        return None
+
     by_id = {w["worker_id"]: w for w in candidates}
     recs = []
-    for rec in getattr(output, "recommendations", []):
+    for rec in data.get("recommendations", []):
         members = []
-        for m in rec.members:
-            w = by_id.get(m.worker_id)
+        for m in rec.get("members", []):
+            w = by_id.get(m.get("worker_id"))
             if not w:
                 members = []
                 break
-            members.append(_member(w, m.assigned_trade, int(m.offered_wage)))
+            try:
+                wage = int(m.get("offered_wage") or w.get("desired_daily_wage", 0))
+            except (ValueError, TypeError):
+                wage = int(w.get("desired_daily_wage", 0))
+            members.append(_member(w, m.get("assigned_trade"), wage))
         if not members:
             continue
-        recs.append(_rec(rec.rank, members, rec.reason, list(rec.considerations)))
-    return recs
+        recs.append(_rec(len(recs) + 1, members,
+                         rec.get("reason", ""), list(rec.get("considerations") or [])))
+    return recs or None
 
 
 # ---------------------------------------------------------------------------

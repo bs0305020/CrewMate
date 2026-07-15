@@ -204,10 +204,11 @@ Resources:
   # =========================================================================
   # Cognito User Pool (username 로그인, custom claim: role/office_id/company_id/region)
   # =========================================================================
-  UserPool:
+  # username 로그인 풀(v2). 기존 이메일 기반 풀은 UsernameAttributes 변경 불가라 새 논리 ID로 신규 생성한다.
+  UserPoolV2:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub "CrewMate-${Stage}"
+      UserPoolName: !Sub "CrewMate-${Stage}-v2"
       AdminCreateUserConfig:
         AllowAdminCreateUserOnly: true
       Policies:
@@ -223,11 +224,11 @@ Resources:
         - { Name: company_id, AttributeDataType: String, Mutable: true, StringAttributeConstraints: { MinLength: "0", MaxLength: "64" } }
         - { Name: region, AttributeDataType: String, Mutable: true, StringAttributeConstraints: { MinLength: "0", MaxLength: "64" } }
 
-  UserPoolClient:
+  UserPoolClientV2:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       ClientName: !Sub "CrewMate-${Stage}-web"
-      UserPoolId: !Ref UserPool
+      UserPoolId: !Ref UserPoolV2
       GenerateSecret: false
       ExplicitAuthFlows:
         - ALLOW_USER_PASSWORD_AUTH
@@ -241,13 +242,13 @@ Resources:
 
   WorkerGroup:
     Type: AWS::Cognito::UserPoolGroup
-    Properties: { GroupName: WORKER, UserPoolId: !Ref UserPool }
+    Properties: { GroupName: WORKER, UserPoolId: !Ref UserPoolV2 }
   OfficeGroup:
     Type: AWS::Cognito::UserPoolGroup
-    Properties: { GroupName: OFFICE, UserPoolId: !Ref UserPool }
+    Properties: { GroupName: OFFICE, UserPoolId: !Ref UserPoolV2 }
   CompanyGroup:
     Type: AWS::Cognito::UserPoolGroup
-    Properties: { GroupName: COMPANY, UserPoolId: !Ref UserPool }
+    Properties: { GroupName: COMPANY, UserPoolId: !Ref UserPoolV2 }
 
   # =========================================================================
   # API Gateway (REST) + Cognito Authorizer (기본), 일부 라우트는 공개
@@ -261,7 +262,7 @@ Resources:
         DefaultAuthorizer: CognitoAuth
         Authorizers:
           CognitoAuth:
-            UserPoolArn: !GetAtt UserPool.Arn
+            UserPoolArn: !GetAtt UserPoolV2.Arn
         AddDefaultAuthorizerToCorsPreflight: false
 
   # =========================================================================
@@ -275,8 +276,8 @@ Resources:
       Handler: functions.auth.app.lambda_handler
       Environment:
         Variables:
-          USER_POOL_ID: !Ref UserPool
-          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          USER_POOL_ID: !Ref UserPoolV2
+          USER_POOL_CLIENT_ID: !Ref UserPoolClientV2
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref OfficesTable }
         - DynamoDBCrudPolicy: { TableName: !Ref CompaniesTable }
@@ -290,7 +291,7 @@ Resources:
                 - cognito-idp:AdminInitiateAuth
                 - cognito-idp:AdminGetUser
                 - cognito-idp:AdminUpdateUserAttributes
-              Resource: !GetAtt UserPool.Arn
+              Resource: !GetAtt UserPoolV2.Arn
       Events:
         Signup:
           Type: Api
@@ -479,18 +480,8 @@ Resources:
 
   # =========================================================================
   # Crew Composition Agent 스택 (NORMAL agent-compose / EMERGENCY agent-recompose)
+  #   Bedrock 를 boto3(런타임 내장)로 직접 호출한다. 네이티브 의존성/레이어/Docker 불필요.
   # =========================================================================
-  AgentDepsLayer:
-    Type: AWS::Serverless::LayerVersion
-    Properties:
-      LayerName: !Sub "crewmate-agent-deps-${Stage}"
-      Description: pydantic + strands-agents for the Crew Composition Agent
-      ContentUri: layers/agent_deps/
-      CompatibleRuntimes: [python3.12]
-      RetentionPolicy: Delete
-    Metadata:
-      BuildMethod: python3.12
-
   AgentInvokeFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -499,8 +490,6 @@ Resources:
       Handler: functions.agent_invoke.app.lambda_handler
       Timeout: 60
       MemorySize: 512
-      Layers:
-        - !Ref AgentDepsLayer
       Environment:
         Variables:
           CREW_AGENT_MODEL_ID: !Ref CrewAgentModelId
@@ -510,7 +499,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref CrewsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref GapEventsTable }
-        - DynamoDBReadPolicy: { TableName: !Ref RequestsTable }
+        # agent-compose 는 요청 상태를 PROPOSED 로 갱신하므로 Requests 에 쓰기 필요.
+        - DynamoDBCrudPolicy: { TableName: !Ref RequestsTable }
         - DynamoDBReadPolicy: { TableName: !Ref WorkersTable }
         - DynamoDBReadPolicy: { TableName: !Ref AssignmentsTable }
         - Statement:
@@ -538,10 +528,10 @@ Outputs:
     Value: !Sub "https://${CrewMateApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
   UserPoolId:
     Description: Cognito User Pool ID
-    Value: !Ref UserPool
+    Value: !Ref UserPoolV2
   UserPoolClientId:
     Description: Cognito User Pool Client ID
-    Value: !Ref UserPoolClient
+    Value: !Ref UserPoolClientV2
   WorkersTableName:
     Value: !Ref WorkersTable
   OfficesTableName:
