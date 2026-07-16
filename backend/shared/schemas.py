@@ -190,9 +190,9 @@ def worker_office_view(worker: dict[str, Any], work_history: list | None = None)
 
 
 def worker_self_view(worker: dict[str, Any], work_history: list | None = None) -> dict[str, Any]:
-    """WORKER 본인 응답용: 평점(rating)·출근 수(attended_count)·배차완료 수(dispatched_count)·
-    완료 수(completed_count)를 노출한다. rating_sum(내부 누적)만 숨긴다."""
-    view = {k: clean(v) for k, v in worker.items() if k not in _WORKER_INTERNAL_KEYS}
+    """WORKER 본인 응답용: 평점·출근 수·완료 수를 노출하고 내부 배차 분모는 숨긴다."""
+    hidden = _WORKER_INTERNAL_KEYS | {"dispatched_count"}
+    view = {k: clean(v) for k, v in worker.items() if k not in hidden}
     view["rating"] = rating_average(worker)
     view["work_history"] = clean(work_history or [])
     return view

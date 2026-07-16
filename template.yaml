@@ -40,6 +40,42 @@ Parameters:
     Default: "25"
     Description: 단일 Bedrock compose 호출의 벽시계 상한(초).
 
+  # --- Applicant Spec Gap Report Agent 설정 ---
+  ReportModelId:
+    Type: String
+    Default: apac.anthropic.claude-sonnet-4-6
+    Description: 보고서 작성용 Bedrock 모델 또는 inference profile ID.
+  ReportModelRegion:
+    Type: String
+    Default: ap-northeast-2
+  ReportModelTemperature:
+    Type: String
+    Default: "0.1"
+  ReportAgentTimeoutSeconds:
+    Type: String
+    Default: "30"
+  KnowledgeBaseId:
+    Type: String
+    Default: ""
+    Description: 별도로 생성·동기화한 Amazon Bedrock Knowledge Base ID. 빈 값이면 KB 미구성으로 명시한다.
+  KbNumberOfResults:
+    Type: String
+    Default: "5"
+  KbReviewStatus:
+    Type: String
+    Default: 검토완료
+    Description: Retrieve metadata filter. 현재 Archive의 검토 전 문서는 이 값과 일치하지 않는다.
+  QnetCacheTtlSeconds:
+    Type: String
+    Default: "604800"
+  ReportRetentionDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+
+Conditions:
+  HasKnowledgeBase: !Not [!Equals [!Ref KnowledgeBaseId, ""]]
+
 # ---------------------------------------------------------------------------
 # 전역 설정
 # ---------------------------------------------------------------------------
@@ -200,6 +236,107 @@ Resources:
       KeySchema:
         - { AttributeName: user_id, KeyType: HASH }
         - { AttributeName: sk, KeyType: RANGE }
+
+  # =========================================================================
+  # Spec Gap Report: source/output storage, cache, and metadata
+  # =========================================================================
+  ReportKmsKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub "CrewMate spec report encryption key (${Stage})"
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnableAccountAdministration
+            Effect: Allow
+            Principal: { AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root" }
+            Action: "kms:*"
+            Resource: "*"
+
+  ReportKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/crewmate-spec-reports-${Stage}"
+      TargetKeyId: !Ref ReportKmsKey
+
+  KnowledgeSourceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      VersioningConfiguration: { Status: Enabled }
+
+  ReportOutputBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt ReportKmsKey.Arn
+            BucketKeyEnabled: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireApplicantReports
+            Status: Enabled
+            Prefix: reports/
+            ExpirationInDays: !Ref ReportRetentionDays
+
+  QualificationEvidenceCache:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "CrewMate-QualificationEvidenceCache-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: normalized_name, AttributeType: S }
+      KeySchema:
+        - { AttributeName: normalized_name, KeyType: HASH }
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      SSESpecification: { SSEEnabled: true }
+
+  SpecReportJobs:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "CrewMate-SpecReportJobs-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: report_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: report_id, KeyType: HASH }
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      SSESpecification: { SSEEnabled: true }
+
+  ReportDepsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "crewmate-report-deps-${Stage}"
+      ContentUri: layers/report_deps/
+      CompatibleRuntimes: [python3.13]
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: python3.13
 
   # =========================================================================
   # Cognito User Pool (username 로그인, custom claim: role/office_id/company_id/region)
@@ -519,6 +656,73 @@ Resources:
           Type: Api
           Properties: { RestApiId: !Ref CrewMateApi, Path: "/office/gap-events/{eventId}/agent-recompose", Method: post }
 
+  # =========================================================================
+  # Applicant Spec Gap Report Agent (deterministic rules + two evidence tools)
+  # =========================================================================
+  SpecReportAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crewmate-spec-report-agent-${Stage}"
+      Runtime: python3.13
+      CodeUri: backend/
+      Handler: functions.spec_report.app.lambda_handler
+      Timeout: 90
+      MemorySize: 1024
+      Layers:
+        - !Ref ReportDepsLayer
+      Environment:
+        Variables:
+          REPORT_MODEL_ID: !Ref ReportModelId
+          REPORT_MODEL_REGION: !Ref ReportModelRegion
+          REPORT_MODEL_TEMPERATURE: !Ref ReportModelTemperature
+          REPORT_AGENT_TIMEOUT_SECONDS: !Ref ReportAgentTimeoutSeconds
+          KNOWLEDGE_BASE_ID: !Ref KnowledgeBaseId
+          KB_NUMBER_OF_RESULTS: !Ref KbNumberOfResults
+          KB_REVIEW_STATUS: !Ref KbReviewStatus
+          KNOWLEDGE_SOURCE_BUCKET: !Ref KnowledgeSourceBucket
+          RULES_PREFIX: rules/
+          REPORT_OUTPUT_BUCKET: !Ref ReportOutputBucket
+          REPORT_KMS_KEY_ID: !GetAtt ReportKmsKey.Arn
+          QUALIFICATION_CACHE_TABLE: !Ref QualificationEvidenceCache
+          SPEC_REPORT_JOBS_TABLE: !Ref SpecReportJobs
+          QNET_CACHE_TTL_SECONDS: !Ref QnetCacheTtlSeconds
+          QNET_TIMEOUT_SECONDS: "5"
+          QNET_MAX_RETRIES: "1"
+          QNET_MIN_INTERVAL_SECONDS: "0.5"
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref QualificationEvidenceCache }
+        - DynamoDBCrudPolicy: { TableName: !Ref SpecReportJobs }
+        - Statement:
+            - Sid: ReadAuthoritativeRules
+              Effect: Allow
+              Action: [s3:GetObject]
+              Resource: !Sub "${KnowledgeSourceBucket.Arn}/rules/*"
+            - Sid: WriteRequestedReportsOnly
+              Effect: Allow
+              Action: [s3:PutObject]
+              Resource: !Sub "${ReportOutputBucket.Arn}/reports/*"
+            - Sid: EncryptRequestedReports
+              Effect: Allow
+              Action: [kms:Encrypt, kms:GenerateDataKey]
+              Resource: !GetAtt ReportKmsKey.Arn
+            - Sid: RetrieveConfiguredKnowledgeBase
+              Effect: Allow
+              Action: [bedrock:Retrieve]
+              Resource: !If
+                - HasKnowledgeBase
+                - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}"
+                - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/UNCONFIGURED"
+            - Sid: InvokeReportModel
+              Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/*"
+                - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*"
+      Events:
+        GenerateSpecReport:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /reports/spec-gap, Method: post }
+
 # ---------------------------------------------------------------------------
 # 출력값
 # ---------------------------------------------------------------------------
@@ -548,3 +752,16 @@ Outputs:
     Value: !Ref GapEventsTable
   NotificationsTableName:
     Value: !Ref NotificationsTable
+  KnowledgeSourceBucketName:
+    Description: Upload rules/ and knowledge-base/ assets here before KB sync.
+    Value: !Ref KnowledgeSourceBucket
+  ReportOutputBucketName:
+    Value: !Ref ReportOutputBucket
+  QualificationEvidenceCacheTableName:
+    Value: !Ref QualificationEvidenceCache
+  SpecReportJobsTableName:
+    Value: !Ref SpecReportJobs
+  ReportKmsKeyArn:
+    Value: !GetAtt ReportKmsKey.Arn
+  SpecReportApiPath:
+    Value: !Sub "https://${CrewMateApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/reports/spec-gap"

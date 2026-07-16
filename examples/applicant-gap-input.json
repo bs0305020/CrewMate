@@ -1,0 +1,13 @@
+{
+  "targetTrade": "방수시공",
+  "certifications": ["방수 기능사"],
+  "abilities": ["도막 방수", "바탕 처리"],
+  "experience": [
+    {
+      "work": "도막 방수",
+      "months": 18
+    }
+  ],
+  "education": ["건설기초안전교육"],
+  "persistReport": false
+}

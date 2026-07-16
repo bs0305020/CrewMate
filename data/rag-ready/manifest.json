@@ -1,0 +1,24 @@
+{
+  "rulesPrefix": "rules/",
+  "knowledgeBasePrefix": "knowledge-base/",
+  "contentField": "search_text",
+  "metadataFields": [
+    "document_id",
+    "document_type",
+    "trade",
+    "certification_group",
+    "importance",
+    "selection_rule",
+    "certification_name",
+    "ncs_code",
+    "review_status",
+    "source_file"
+  ],
+  "sourceFilesModified": false,
+  "assets": [
+    "knowledge-base/certification-requirements.csv",
+    "knowledge-base/ability-requirements.csv",
+    "knowledge-base/certification-normalization-evidence.csv",
+    "knowledge-base/rag-search-documents.csv"
+  ]
+}

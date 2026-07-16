@@ -1,0 +1,49 @@
+{
+  "metadataAttributes": {
+    "source_file": "직종별_능력요건.csv"
+  },
+  "documentStructureConfiguration": {
+    "type": "RECORD_BASED_STRUCTURE_METADATA",
+    "recordBasedStructureMetadata": {
+      "contentFields": [
+        {
+          "fieldName": "search_text"
+        }
+      ],
+      "metadataFieldsSpecification": {
+        "fieldsToInclude": [
+          {
+            "fieldName": "document_id"
+          },
+          {
+            "fieldName": "document_type"
+          },
+          {
+            "fieldName": "trade"
+          },
+          {
+            "fieldName": "certification_group"
+          },
+          {
+            "fieldName": "importance"
+          },
+          {
+            "fieldName": "selection_rule"
+          },
+          {
+            "fieldName": "certification_name"
+          },
+          {
+            "fieldName": "ncs_code"
+          },
+          {
+            "fieldName": "review_status"
+          },
+          {
+            "fieldName": "source_file"
+          }
+        ]
+      }
+    }
+  }
+}
