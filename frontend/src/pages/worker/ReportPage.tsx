@@ -4,7 +4,6 @@ import toast from 'react-hot-toast';
 import { api } from '../../api/client';
 import type { SpecReportJobStart, SpecReportJobState, SpecReportJobSummary, SpecReportRequest, SpecReportResponse, Trade, Worker } from '../../api/types';
 import MarkdownReport, { humanizeReportText } from '../../components/MarkdownReport';
-import { downloadSpecReport } from '../../lib/reportDownload';
 import { tradeText } from '../../lib/trades';
 
 const LAST_REPORT_JOB_KEY = 'crewmate:last-spec-report-job';
@@ -146,16 +145,6 @@ export default function ReportPage() {
     setJobId(saved.reportId);
   };
 
-  const downloadReport = () => {
-    if (!result) return;
-    try {
-      downloadSpecReport(result);
-      toast.success('보고서를 다운로드했습니다.');
-    } catch {
-      toast.error('보고서를 다운로드하지 못했습니다. 다시 시도해주세요.');
-    }
-  };
-
   return (
     <div className="max-w-lg mx-auto space-y-4 min-w-0">
       <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -246,13 +235,12 @@ export default function ReportPage() {
 
           {result.markdown ? (
             <section className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6 min-w-0">
-              <ReportSectionHeader onDownload={downloadReport} />
+              <h3 className="font-semibold text-gray-800 mb-4">전체 보고서</h3>
               <MarkdownReport markdown={result.markdown} />
             </section>
           ) : (
             <section className="bg-white rounded-lg border border-gray-200 p-6">
-              <ReportSectionHeader onDownload={downloadReport} />
-              <h4 className="text-sm font-medium text-gray-700 mb-2">확인이 필요한 항목</h4>
+              <h3 className="font-semibold text-gray-800 mb-3">확인이 필요한 항목</h3>
               <ul className="text-sm text-gray-600 space-y-1">
                 {[...result.report.limitations, ...result.report.humanReviewItems].map((item) => <li key={item}>· {item}</li>)}
               </ul>
@@ -260,24 +248,6 @@ export default function ReportPage() {
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function ReportSectionHeader({ onDownload }: { onDownload: () => void }) {
-  return (
-    <div className="flex flex-col gap-3 mb-4 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between">
-      <div>
-        <h3 className="font-semibold text-gray-800">전체 보고서</h3>
-        <p className="text-xs text-gray-400 mt-0.5">브라우저에서 열고 PDF로도 인쇄할 수 있습니다.</p>
-      </div>
-      <button type="button" onClick={onDownload}
-        className="inline-flex w-full min-[380px]:w-auto items-center justify-center gap-1.5 rounded-md border border-green-600 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-50 transition-colors">
-        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
-          <path d="M10 2.5v9m0 0 3.5-3.5M10 11.5 6.5 8M4 13.5v2.25c0 .97.78 1.75 1.75 1.75h8.5c.97 0 1.75-.78 1.75-1.75V13.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        보고서 다운로드
-      </button>
     </div>
   );
 }
