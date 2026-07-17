@@ -67,14 +67,24 @@ def agent_compose(_event, principal: Principal, params):
     ]
     needed = _flatten_required(request.get("required_workers", []))
     if len(candidates) < len(needed):
-        raise ApiError(ErrorCode.AGENT_RETRY_FAILED,
-                       "READY 상태 후보가 부족하여 AI 편성에 실패했습니다. 수동 편성으로 진행해주세요.")
+        raise ApiError(
+            ErrorCode.AGENT_RETRY_FAILED,
+            f"편성에 필요한 인원은 {len(needed)}명이지만 현재 대기 중인 후보는 "
+            f"{len(candidates)}명입니다. 근로자 대기 상태와 필요 인원을 확인해주세요.",
+        )
 
-    recs = _recommend(candidates, needed, int(request.get("budget", 0)),
+    budget = int(request.get("budget", 0))
+    recs = _recommend(candidates, needed, budget,
                       mode="NORMAL", priority=request.get("priority"), request=request)
     if not recs:
-        raise ApiError(ErrorCode.AGENT_RETRY_FAILED,
-                       "예산 범위 내에서 가능한 조합을 찾지 못했습니다. 예산 조정 또는 수동 편성이 필요합니다.")
+        recs = _rule_based_recommendations(
+            candidates,
+            needed,
+            budget=budget,
+            priority=request.get("priority"),
+        )
+    if not recs:
+        raise ApiError(ErrorCode.AGENT_RETRY_FAILED, _composition_failure_reason(candidates, needed))
 
     _cancel_existing_crews(request["request_id"])
     top = recs[0]
@@ -138,9 +148,16 @@ def agent_recompose(_event, principal: Principal, params):
                       crew_id=crew["crew_id"],
                       context_worker_ids=[m["worker_id"] for m in fixed])
     if not recs:
+        recs = _rule_based_recommendations(
+            candidates,
+            gap_trades,
+            budget=remaining,
+            priority=request.get("priority"),
+            context_worker_ids=[m["worker_id"] for m in fixed],
+        )
+    if not recs:
         _set_gap_status(gap["event_id"], GapStatus.FAILED)
-        raise ApiError(ErrorCode.AGENT_RETRY_FAILED,
-                       "대체 가능한 인력을 찾지 못했습니다. 수동 편성 또는 편성 취소가 필요합니다.")
+        raise ApiError(ErrorCode.AGENT_RETRY_FAILED, _composition_failure_reason(candidates, gap_trades))
 
     now = now_iso()
     db.update_gap_event(
@@ -256,6 +273,65 @@ def _recommend(candidates, needed_trades, budget, *, mode="NORMAL", fixed_member
         r["rank"] = i
         r["fitness"] = _fitness_percent(r["members"], weights, collab, context_ids, wage_lo, wage_hi)
     return recs
+
+
+def _rule_based_recommendations(
+    candidates,
+    needed_trades,
+    *,
+    budget,
+    priority=None,
+    context_worker_ids=None,
+) -> list[dict[str, Any]]:
+    """Return an executable combination even when only the configured budget blocks it."""
+    weights = _priority_weights(priority)
+    collab = _CollabIndex()
+    context_ids = list(context_worker_ids or [])
+    recs = _greedy(candidates, needed_trades, 0, weights, collab, context_ids)
+    if not recs:
+        return []
+    wages = [int(worker.get("desired_daily_wage", 0)) for worker in candidates] or [0]
+    wage_lo, wage_hi = min(wages), max(wages)
+    for rank, rec in enumerate(recs, start=1):
+        rec["rank"] = rank
+        rec["fitness"] = _fitness_percent(
+            rec["members"], weights, collab, context_ids, wage_lo, wage_hi
+        )
+        excess = rec["total_cost"] - int(budget or 0)
+        if budget and excess > 0:
+            warning = f"⚠ 예산 {excess:,}원 초과 — 임금 수정 필요"
+            rec["reason"] = (
+                f"{warning}. 필요한 직종과 인원은 충족하므로 임금을 조정한 뒤 승인할 수 있습니다."
+            )
+            rec["considerations"] = list(dict.fromkeys([
+                *[
+                    item for item in rec.get("considerations", [])
+                    if "예산 범위" not in item
+                ],
+                warning,
+            ]))
+    return recs
+
+
+def _composition_failure_reason(candidates, needed_trades) -> str:
+    """Explain why no combination exists without exposing worker identifiers."""
+    if not candidates:
+        return "현재 대기 중인 근로자가 없어 작업조를 구성할 수 없습니다. 근로자의 대기 상태를 확인해주세요."
+    shortages = []
+    required = Counter(needed_trades)
+    for trade, count in required.items():
+        if trade == "ANY":
+            available = sum(1 for worker in candidates if _assign_any_trade(worker) is not None)
+        else:
+            available = sum(
+                1 for worker in candidates
+                if trade not in (worker.get("excluded_trades") or [])
+            )
+        if available < count:
+            shortages.append(f"{_HUMAN_TRADE_LABELS.get(trade, trade)} {count - available}명 부족")
+    if shortages:
+        return "배치 가능한 후보가 부족합니다: " + ", ".join(shortages) + ". 근로자 직종 제외 조건을 확인해주세요."
+    return "각 직종 후보는 있으나 한 근로자를 중복 배정하지 않고 모든 조건을 동시에 충족하는 조합이 없습니다. 필요 인원이나 직종 조건을 조정해주세요."
 
 
 def _priority_for_agent(priority) -> dict[str, int] | None:
@@ -684,13 +760,20 @@ def _cancel_existing_crews(request_id: str):
         )
 
 
-def _set_request_status(request_id, status):
+def _set_request_status(request_id, status, *, composition_error: str | None = None):
     now = now_iso()
+    expression = "SET #s = :s, gsi1sk = :g, updated_at = :t"
+    values = {":s": status, ":g": db.request_gsi1sk(status, request_id), ":t": now}
+    if composition_error:
+        expression += ", composition_error = :error"
+        values[":error"] = composition_error
+    else:
+        expression += " REMOVE composition_error"
     db.update_request(
         request_id,
-        UpdateExpression="SET #s = :s, gsi1sk = :g, updated_at = :t",
+        UpdateExpression=expression,
         ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={":s": status, ":g": db.request_gsi1sk(status, request_id), ":t": now},
+        ExpressionAttributeValues=values,
     )
 
 
@@ -789,7 +872,16 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         response = router.dispatch(event)
         if int(response.get("statusCode", 500)) >= 400:
             if event.get("_entityType") == "REQUEST":
-                _set_request_status(event["_entityId"], event.get("_previousStatus") or RequestStatus.REQUESTED)
+                try:
+                    payload = json.loads(response.get("body") or "{}")
+                    error_message = str((payload.get("error") or {}).get("message") or "AI 편성 조건을 충족하는 조합을 찾지 못했습니다.")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    error_message = "AI 편성 조건을 충족하는 조합을 찾지 못했습니다."
+                _set_request_status(
+                    event["_entityId"],
+                    event.get("_previousStatus") or RequestStatus.REQUESTED,
+                    composition_error=error_message,
+                )
             elif event.get("_entityType") == "GAP":
                 _set_gap_status(event["_entityId"], GapStatus.FAILED)
         return response

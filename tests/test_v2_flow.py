@@ -369,6 +369,51 @@ def test_general_slot_accepts_worker_without_general_preference(tables):
     assert recommendation["members"][0]["assigned_trade"] == "GENERAL"
 
 
+def test_agent_returns_over_budget_combination_with_edit_warning(tables):
+    _seed_worker(tables, "w-expensive", wage=180000)
+    _seed_request(tables, "REQ-BUDGET", count=1, budget=100000)
+
+    response = _call("functions.agent_invoke.app", make_event(
+        "POST", "/office/requests/REQ-BUDGET/agent-compose",
+        role="OFFICE", office_id=OFFICE,
+        path_params={"requestId": "REQ-BUDGET"},
+    ))
+
+    assert response["statusCode"] == 200
+    recommendation = body_of(response)["data"]["recommendations"][0]
+    assert recommendation["total_cost"] == 180000
+    assert "예산 80,000원 초과" in recommendation["reason"]
+    assert any("임금 수정 필요" in item for item in recommendation["considerations"])
+
+
+def test_async_agent_failure_persists_user_readable_reason(tables):
+    _seed_worker(tables, "w1", trade="GENERAL")
+    tables.update_worker(
+        "w1",
+        UpdateExpression="SET excluded_trades = :excluded",
+        ExpressionAttributeValues={":excluded": ["REBAR"]},
+    )
+    _seed_request(tables, "REQ-NO-MATCH", trade="REBAR", count=1)
+    event = make_event(
+        "POST", "/office/requests/REQ-NO-MATCH/agent-compose",
+        role="OFFICE", office_id=OFFICE,
+        path_params={"requestId": "REQ-NO-MATCH"},
+    )
+    event.update({
+        "_crewAgentAction": "RUN",
+        "_entityType": "REQUEST",
+        "_entityId": "REQ-NO-MATCH",
+        "_previousStatus": "REQUESTED",
+    })
+
+    response = _call("functions.agent_invoke.app", event)
+
+    assert response["statusCode"] == 502
+    request = tables.get_request("REQ-NO-MATCH")
+    assert request["status"] == "REQUESTED"
+    assert "철근공 1명 부족" in request["composition_error"]
+
+
 def test_agent_compose_can_start_asynchronously_without_forwarding_token(tables, monkeypatch):
     import functions.agent_invoke.app as agent_app
 
