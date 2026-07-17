@@ -176,6 +176,64 @@ def test_spec_report_job_can_only_be_read_by_owner(monkeypatch):
     assert response["statusCode"] == 403
 
 
+def test_spec_report_job_list_is_scoped_to_owner(monkeypatch):
+    observed = {}
+
+    class Storage:
+        def list_jobs(self, owner_user_id):
+            observed["owner"] = owner_user_id
+            return [{
+                "report_id": "job-1",
+                "target_trade": "방수시공",
+                "status": "COMPLETED",
+                "created_at": "2026-07-17T00:00:00+00:00",
+                "completed_at": "2026-07-17T00:01:00+00:00",
+            }]
+
+    monkeypatch.setattr(lambda_app, "_storage", lambda: Storage())
+    response = lambda_app.lambda_handler({
+        "httpMethod": "GET",
+        "path": "/reports/spec-gap/jobs",
+        "requestContext": {"authorizer": {"claims": {
+            "sub": "worker-owner", "custom:role": "WORKER",
+        }}},
+    }, None)
+
+    payload = json.loads(response["body"])
+    assert response["statusCode"] == 200
+    assert observed["owner"] == "worker-owner"
+    assert payload == [{
+        "reportId": "job-1",
+        "targetTrade": "방수시공",
+        "status": "COMPLETED",
+        "createdAt": "2026-07-17T00:00:00+00:00",
+        "completedAt": "2026-07-17T00:01:00+00:00",
+        "errorCode": None,
+    }]
+
+
+def test_report_storage_queries_owner_index_without_report_body():
+    from spec_report.storage import S3ReportStorage
+
+    class JobsTable:
+        def __init__(self):
+            self.kwargs = None
+
+        def query(self, **kwargs):
+            self.kwargs = kwargs
+            return {"Items": [{"report_id": "job-1", "owner_user_id": "owner"}]}
+
+    table = JobsTable()
+    storage = S3ReportStorage(jobs_table=table)
+
+    jobs = storage.list_jobs("owner", limit=20)
+
+    assert jobs == [{"report_id": "job-1", "owner_user_id": "owner"}]
+    assert table.kwargs["IndexName"] == "OwnerCreatedAtIndex"
+    assert table.kwargs["ExpressionAttributeValues"] == {":owner": "owner"}
+    assert table.kwargs["ScanIndexForward"] is False
+
+
 def test_32_cache_record_has_no_applicant_personal_data():
     from spec_report.qnet import DynamoQualificationCache
 

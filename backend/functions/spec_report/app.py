@@ -157,6 +157,22 @@ def _get_job(event: dict[str, Any]) -> dict[str, Any]:
     return _response(200, result)
 
 
+def _list_jobs(event: dict[str, Any]) -> dict[str, Any]:
+    principal = _require_worker(event)
+    jobs = _storage().list_jobs(principal.user_id)
+    return _response(200, [
+        {
+            "reportId": item.get("report_id"),
+            "targetTrade": item.get("target_trade") or "직종 미확인",
+            "status": item.get("status") or "PROCESSING",
+            "createdAt": item.get("created_at"),
+            "completedAt": item.get("completed_at"),
+            "errorCode": item.get("error_code"),
+        }
+        for item in jobs
+    ])
+
+
 def _run_async_job(event: dict[str, Any]) -> dict[str, Any]:
     report_id = str(event.get("reportId") or "")
     storage = _storage()
@@ -187,6 +203,8 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     try:
         if method == "POST" and path.rstrip("/") == "/reports/spec-gap/jobs":
             return _start_job(event, _context)
+        if method == "GET" and path.rstrip("/") == "/reports/spec-gap/jobs":
+            return _list_jobs(event)
         if method == "GET" and "/reports/spec-gap/jobs/" in path:
             return _get_job(event)
     except ApiError as exc:

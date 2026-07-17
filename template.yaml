@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
   CrewMate - 건설 일용직 작업조 편성 서버리스 백엔드 (계약 v2).
-  DynamoDB 엔터티별 테이블 8종 + Cognito + API Gateway + 코어/Agent Lambda.
+  DynamoDB 코어 테이블 8종과 보고서 메타데이터/캐시 + Cognito + API Gateway + 코어/Agent Lambda.
 
 # ---------------------------------------------------------------------------
 # 파라미터
@@ -376,8 +376,16 @@ Resources:
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - { AttributeName: report_id, AttributeType: S }
+        - { AttributeName: owner_user_id, AttributeType: S }
+        - { AttributeName: created_at, AttributeType: S }
       KeySchema:
         - { AttributeName: report_id, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: OwnerCreatedAtIndex
+          KeySchema:
+            - { AttributeName: owner_user_id, KeyType: HASH }
+            - { AttributeName: created_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
       TimeToLiveSpecification:
         AttributeName: expires_at
         Enabled: true
@@ -792,8 +800,10 @@ Resources:
               Resource: !GetAtt QualificationEvidenceCache.Arn
             - Sid: SpecReportJobMetadataAccess
               Effect: Allow
-              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem]
-              Resource: !GetAtt SpecReportJobs.Arn
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query]
+              Resource:
+                - !GetAtt SpecReportJobs.Arn
+                - !Sub "${SpecReportJobs.Arn}/index/OwnerCreatedAtIndex"
             - Sid: ReadAuthoritativeRules
               Effect: Allow
               Action: [s3:GetObject]
@@ -833,6 +843,9 @@ Resources:
         GetSpecReportJob:
           Type: Api
           Properties: { RestApiId: !Ref CrewMateApi, Path: "/reports/spec-gap/jobs/{reportId}", Method: get }
+        ListSpecReportJobs:
+          Type: Api
+          Properties: { RestApiId: !Ref CrewMateApi, Path: /reports/spec-gap/jobs, Method: get }
 
 # ---------------------------------------------------------------------------
 # 출력값

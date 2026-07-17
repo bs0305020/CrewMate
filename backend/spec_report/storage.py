@@ -83,6 +83,19 @@ class S3ReportStorage:
             raise RuntimeError("Spec report jobs table is not configured")
         return self.jobs_table.get_item(Key={"report_id": report_id}).get("Item")
 
+    def list_jobs(self, owner_user_id: str, *, limit: int = 30) -> list[dict[str, Any]]:
+        """List non-sensitive report metadata for one owner, newest first."""
+        if self.jobs_table is None:
+            raise RuntimeError("Spec report jobs table is not configured")
+        response = self.jobs_table.query(
+            IndexName="OwnerCreatedAtIndex",
+            KeyConditionExpression="owner_user_id = :owner",
+            ExpressionAttributeValues={":owner": owner_user_id},
+            ScanIndexForward=False,
+            Limit=max(1, min(int(limit), 100)),
+        )
+        return list(response.get("Items") or [])
+
     def read(self, report_id: str) -> dict[str, Any]:
         if not self.bucket_name or self.s3 is None:
             raise RuntimeError("Report output bucket is not configured")

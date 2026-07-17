@@ -43,3 +43,16 @@ def test_agent_lambdas_have_async_self_invoke_permissions() -> None:
 def test_report_agent_has_bounded_background_timeout() -> None:
     template = (Path(__file__).parents[1] / "template.yaml").read_text(encoding="utf-8")
     assert 'ReportAgentTimeoutSeconds:\n    Type: String\n    Default: "60"' in template
+
+
+def test_report_jobs_have_owner_history_index_and_query_permission() -> None:
+    template = (Path(__file__).parents[1] / "template.yaml").read_text(encoding="utf-8")
+    table = _resource_block(template, "SpecReportJobs", "AgentDepsLayer")
+    report = template[
+        template.index("  SpecReportAgentFunction:"):template.index("\nOutputs:")
+    ]
+
+    assert "OwnerCreatedAtIndex" in table
+    assert "owner_user_id" in table and "created_at" in table
+    assert "dynamodb:Query" in report
+    assert "/reports/spec-gap/jobs, Method: get" in report
