@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import random
+import re
 from collections import Counter
 from typing import Any
 
@@ -337,13 +338,67 @@ def _agent_output_recommendations(
                 member.offered_wage,
             ))
         if members:
+            reason = _humanize_agent_text(item.reason, by_id, expected_request_id)
+            considerations = [
+                _humanize_agent_text(value, by_id, expected_request_id)
+                for value in item.considerations
+            ]
             recommendations.append(_rec(
                 len(recommendations) + 1,
                 members,
-                item.reason,
-                list(item.considerations),
+                reason,
+                considerations,
             ))
     return recommendations or None
+
+
+_HUMAN_TRADE_LABELS = {
+    "FORMWORK": "형틀목공",
+    "REBAR": "철근공",
+    "MASONRY": "조적공",
+    "MATERIAL_CARRY": "자재운반",
+    "GENERAL": "보통인부",
+    "ANY": "직종 무관",
+}
+
+
+def _humanize_agent_text(
+    value: str,
+    candidates_by_id: dict[str, dict[str, Any]],
+    request_id: str,
+) -> str:
+    """Agent 설명에서 허용된 식별자와 내부 코드값을 사용자용 표현으로 바꾼다."""
+    text = str(value or "")
+    for worker_id in sorted(candidates_by_id, key=len, reverse=True):
+        worker = candidates_by_id[worker_id]
+        label = f"{worker.get('name')} 근로자" if worker.get("name") else "선택 근로자"
+        text = text.replace(worker_id, label)
+    if request_id:
+        text = text.replace(request_id, "현재 작업 요청")
+    for code, label in _HUMAN_TRADE_LABELS.items():
+        text = re.sub(rf"(?<![A-Za-z0-9_]){code}(?![A-Za-z0-9_])", label, text)
+    field_labels = {
+        "candidate_worker_ids": "후보 근로자",
+        "worker_id": "근로자",
+        "member_id": "근로자",
+        "request_id": "작업 요청",
+        "crew_id": "작업조",
+    }
+    for field, label in field_labels.items():
+        text = re.sub(
+            rf"(?<![A-Za-z0-9_]){field}(?![A-Za-z0-9_])",
+            label,
+            text,
+            flags=re.IGNORECASE,
+        )
+    text = re.sub(r"\b(?:REQ|CREW|WORKER|W)_[A-Za-z0-9_-]+\b", "식별 정보", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+        "식별 정보",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return " ".join(text.split())
 
 
 def _try_strands(

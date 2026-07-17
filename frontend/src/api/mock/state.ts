@@ -7,6 +7,7 @@ import type {
   Notification,
   Office,
 } from '../types';
+import { loadAuthSession } from '../../auth/session';
 
 // 시드 인력사무소 목록 (GET /offices 로 제공)
 export const SEED_OFFICES: Office[] = [
@@ -276,5 +277,5 @@ export function setCurrentUserId(id: string | null) {
   currentUserId = id;
 }
 export function getCurrentUserId(): string | null {
-  return currentUserId;
+  return currentUserId || loadAuthSession()?.userId || null;
 }

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import type { AuthUser, LoginRequest, SignupRequest } from '../api/types';
 import { api, setAuthToken } from '../api/client';
+import { loadAuthSession, saveAuthSession } from './session';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -14,7 +15,11 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    const restored = loadAuthSession();
+    setAuthToken(restored?.token ?? null);
+    return restored;
+  });
 
   const login = useCallback(async (credentials: LoginRequest) => {
     const res = await api.post<{ user: AuthUser }>('/auth/login', credentials);
@@ -23,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const authUser = res.data.user;
       setUser(authUser);
       setAuthToken(authUser.token);
+      saveAuthSession(authUser);
       return { success: true, role: authUser.role };
     } else {
       return { success: false, error: res.error.message };
@@ -35,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const authUser = res.data.user;
       setUser(authUser);
       setAuthToken(authUser.token);
+      saveAuthSession(authUser);
       return { success: true, role: authUser.role };
     } else {
       return { success: false, error: res.error.message };
@@ -44,10 +51,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setUser(null);
     setAuthToken(null);
+    saveAuthSession(null);
   }, []);
 
   const updateName = useCallback((name: string) => {
-    setUser((prev) => prev ? { ...prev, name } : null);
+    setUser((prev) => {
+      if (!prev) return null;
+      const updated = { ...prev, name };
+      saveAuthSession(updated);
+      return updated;
+    });
   }, []);
 
   return (

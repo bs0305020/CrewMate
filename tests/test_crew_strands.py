@@ -50,6 +50,8 @@ def test_40_crew_agent_prompt_is_closed_world_and_emergency_replacements_only():
     assert "`get_ready_workers`를 한 번 호출" in prompt
     assert "`AgentOutput` 구조화 출력" in prompt
     assert "분석 과정이나 일반 텍스트를 출력하지 말고" in prompt
+    assert "`GENERAL`은 별도 전문 태그가 필요한 직종이 아니라 보통인부 슬롯" in prompt
+    assert "데이터베이스 필드명" in prompt
 
 
 def test_41_crew_compose_uses_strict_agent_input_and_output():
@@ -326,3 +328,40 @@ def test_47_registered_tool_receives_only_lambda_approved_candidate_scope(monkey
         "required_trades": ["GENERAL"],
         "allowed_worker_ids": {"w1"},
     }
+
+
+def test_agent_explanation_replaces_internal_ids_and_codes():
+    output = AgentOutput.model_validate({
+        "mode": "NORMAL",
+        "request_id": "REQ_INTERNAL_123",
+        "recommendations": [{
+            "rank": 1,
+            "members": [{
+                "worker_id": "WORKER_INTERNAL_456",
+                "assigned_trade": "FORMWORK",
+                "offered_wage": 150000,
+            }],
+            "total_cost": 150000,
+            "reason": "WORKER_INTERNAL_456를 request_id REQ_INTERNAL_123의 FORMWORK에 배정합니다.",
+            "considerations": ["worker_id와 candidate_worker_ids를 비교했습니다."],
+        }],
+    })
+    candidates = [{
+        **_candidate("WORKER_INTERNAL_456"),
+        "name": "김근로",
+        "preferred_trades": ["FORMWORK"],
+    }]
+
+    result = app._agent_output_recommendations(
+        output,
+        candidates,
+        expected_mode="NORMAL",
+        expected_request_id="REQ_INTERNAL_123",
+    )
+
+    explanation = " ".join([result[0]["reason"], *result[0]["considerations"]])
+    assert "김근로 근로자" in explanation
+    assert "형틀목공" in explanation
+    assert "WORKER_INTERNAL_456" not in explanation
+    assert "REQ_INTERNAL_123" not in explanation
+    assert "worker_id" not in explanation

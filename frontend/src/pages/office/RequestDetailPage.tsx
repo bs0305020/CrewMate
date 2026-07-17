@@ -6,7 +6,7 @@ import { usePolling } from '../../hooks/usePolling';
 import type { WorkRequest, Crew, CrewMember, AcceptanceStatus, WorkerState, Recommendation, GapEvent } from '../../api/types';
 
 const STATUS_LABEL: Record<string, string> = {
-  REQUESTED: '요청 접수', COMPOSING: '재편성 중', PROPOSED: '추천 완료',
+  REQUESTED: '요청 접수', COMPOSING: 'AI 편성 중', PROPOSED: '추천 완료',
   APPROVED: '수락 대기', DISPATCHED: '배차 완료', RUNNING: '작업 중',
   COMPLETED: '완료', CANCELLED: '취소', NOTIFIED: '수락 대기', DRAFT: '임시', REJECTED: '거절됨',
 };

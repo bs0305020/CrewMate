@@ -6,7 +6,7 @@ import type { WorkRequest, WorkRequestStatus } from '../../api/types';
 
 const STATUS_CONFIG: Record<WorkRequestStatus, { label: string; color: string }> = {
   REQUESTED: { label: '요청 접수', color: 'bg-yellow-100 text-yellow-700' },
-  COMPOSING: { label: '재편성 중', color: 'bg-red-100 text-red-600' },
+  COMPOSING: { label: 'AI 편성 중', color: 'bg-indigo-100 text-indigo-700' },
   PROPOSED: { label: '추천 완료', color: 'bg-indigo-100 text-indigo-700' },
   APPROVED: { label: '수락 대기', color: 'bg-blue-100 text-blue-700' },
   DISPATCHED: { label: '배차 완료', color: 'bg-teal-100 text-teal-700' },

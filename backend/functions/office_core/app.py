@@ -59,6 +59,7 @@ from shared.state import (
     GapType,
     RequestStatus,
     Role,
+    Trade,
     WorkerState,
 )
 from shared.routing import Router
@@ -126,7 +127,9 @@ def _apply_filters(workers, qp):
         validate_trade(trade)
     result = []
     for w in workers:
-        if trade and trade not in (w.get("preferred_trades") or []):
+        if trade == Trade.GENERAL and trade in (w.get("excluded_trades") or []):
+            continue
+        if trade and trade != Trade.GENERAL and trade not in (w.get("preferred_trades") or []):
             continue
         if region and w.get("region") != region:
             continue

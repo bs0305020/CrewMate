@@ -170,7 +170,8 @@ export default function ComposePage() {
   const neededTrades = tradeStatus.filter((t) => t.have < t.required).map((t) => t.trade);
   const canFillTrade = (w: Worker, t: string) => t === 'ANY' || !w.excluded_trades.includes(t as Trade);
   const filteredCandidates = candidates.filter((w) => {
-    if (filterTrade && !w.preferred_trades.includes(filterTrade)) return false;
+    if (filterTrade === 'GENERAL' && w.excluded_trades.includes('GENERAL')) return false;
+    if (filterTrade && filterTrade !== 'GENERAL' && !w.preferred_trades.includes(filterTrade)) return false;
     if (onlyNeeded && !neededTrades.some((t) => canFillTrade(w, t))) return false;
     return true;
   });

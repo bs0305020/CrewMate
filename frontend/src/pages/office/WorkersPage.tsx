@@ -29,12 +29,15 @@ const STATE_CONFIG: Record<WorkerState, { label: string; color: string }> = {
   RUNNING: { label: '작업 중', color: 'bg-orange-100 text-orange-700' },
 };
 
+type SortKey = 'name' | 'career_desc' | 'wage_asc' | 'wage_desc' | 'completed_desc';
+
 export default function WorkersPage() {
   const navigate = useNavigate();
   const [filterTrade, setFilterTrade] = useState<Trade | ''>('');
   const [filterState, setFilterState] = useState<WorkerState | ''>('READY');
   const [filterMinCareer, setFilterMinCareer] = useState(0);
   const [filterMaxWage, setFilterMaxWage] = useState(300000);
+  const [sortBy, setSortBy] = useState<SortKey>('name');
 
   const fetchWorkers = useCallback(async () => {
     const res = await api.get<Worker[]>('/office/workers');
@@ -49,10 +52,17 @@ export default function WorkersPage() {
 
   const filtered = (workers || []).filter((w) => {
     if (filterState && w.state !== filterState) return false;
-    if (filterTrade && !w.preferred_trades.includes(filterTrade)) return false;
+    if (filterTrade === 'GENERAL' && w.excluded_trades.includes('GENERAL')) return false;
+    if (filterTrade && filterTrade !== 'GENERAL' && !w.preferred_trades.includes(filterTrade)) return false;
     if (w.career_years < filterMinCareer) return false;
     if (w.desired_daily_wage > filterMaxWage) return false;
     return true;
+  }).sort((a, b) => {
+    if (sortBy === 'career_desc') return b.career_years - a.career_years || a.name.localeCompare(b.name, 'ko');
+    if (sortBy === 'wage_asc') return a.desired_daily_wage - b.desired_daily_wage || a.name.localeCompare(b.name, 'ko');
+    if (sortBy === 'wage_desc') return b.desired_daily_wage - a.desired_daily_wage || a.name.localeCompare(b.name, 'ko');
+    if (sortBy === 'completed_desc') return b.completed_count - a.completed_count || a.name.localeCompare(b.name, 'ko');
+    return a.name.localeCompare(b.name, 'ko');
   });
 
   return (
@@ -77,6 +87,20 @@ export default function WorkersPage() {
             <option value="READY">대기 중 (READY)</option>
             <option value="INACTIVE">비활성</option>
             <option value="RUNNING">작업 중</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">정렬</label>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+          >
+            <option value="name">이름순</option>
+            <option value="career_desc">경력 높은순</option>
+            <option value="wage_asc">희망 일당 낮은순</option>
+            <option value="wage_desc">희망 일당 높은순</option>
+            <option value="completed_desc">완료 작업 많은순</option>
           </select>
         </div>
         <div>
