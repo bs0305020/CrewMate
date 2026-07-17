@@ -51,6 +51,12 @@ export default function ComposePage() {
   // 후보 필터 (D-18)
   const [filterTrade, setFilterTrade] = useState<Trade | ''>('');
   const [onlyNeeded, setOnlyNeeded] = useState(false);
+  const [searchName, setSearchName] = useState('');
+  const [filterRegion, setFilterRegion] = useState('');
+  const [minCareer, setMinCareer] = useState('');
+  const [maxWage, setMaxWage] = useState('');
+  const [sortBy, setSortBy] = useState('CAREER_DESC');
+  const [detailWorker, setDetailWorker] = useState<Worker | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -178,12 +184,26 @@ export default function ComposePage() {
   // 후보 필터 (D-18): 직종 선택 + 아직 부족한 직종만 보기
   const neededTrades = tradeStatus.filter((t) => t.have < t.required).map((t) => t.trade);
   const canFillTrade = (w: Worker, t: string) => t === 'ANY' || !w.excluded_trades.includes(t as Trade);
-  const filteredCandidates = candidates.filter((w) => {
-    if (filterTrade === 'GENERAL' && w.excluded_trades.includes('GENERAL')) return false;
-    if (filterTrade && filterTrade !== 'GENERAL' && !w.preferred_trades.includes(filterTrade)) return false;
-    if (onlyNeeded && !neededTrades.some((t) => canFillTrade(w, t))) return false;
-    return true;
-  });
+  const regionOptions = [...new Set(candidates.map((worker) => worker.region))].sort((a, b) => a.localeCompare(b, 'ko'));
+  const normalizedSearch = searchName.trim().toLocaleLowerCase('ko');
+  const filteredCandidates = candidates
+    .filter((w) => {
+      if (normalizedSearch && !w.name.toLocaleLowerCase('ko').includes(normalizedSearch)) return false;
+      if (filterRegion && w.region !== filterRegion) return false;
+      if (minCareer && w.career_years < Number(minCareer)) return false;
+      if (maxWage && w.desired_daily_wage > Number(maxWage)) return false;
+      if (filterTrade === 'GENERAL' && w.excluded_trades.includes('GENERAL')) return false;
+      if (filterTrade && filterTrade !== 'GENERAL' && !w.preferred_trades.includes(filterTrade)) return false;
+      if (onlyNeeded && !neededTrades.some((t) => canFillTrade(w, t))) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'NAME_ASC') return a.name.localeCompare(b.name, 'ko');
+      if (sortBy === 'WAGE_ASC') return a.desired_daily_wage - b.desired_daily_wage;
+      if (sortBy === 'WAGE_DESC') return b.desired_daily_wage - a.desired_daily_wage;
+      if (sortBy === 'COMPLETED_DESC') return b.completed_count - a.completed_count;
+      return b.career_years - a.career_years;
+    });
 
   const handleApprove = async () => {
     if (!requestId) return;
@@ -325,8 +345,10 @@ export default function ComposePage() {
       )}
 
       {/* 후보 필터 (D-18) */}
-      <div className="bg-white rounded-lg border border-gray-200 p-3 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-500">후보 필터</span>
+      <div className="bg-white rounded-lg border border-gray-200 p-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <input value={searchName} onChange={(e) => setSearchName(e.target.value)}
+          placeholder="근로자 이름 검색"
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm" />
         <select value={filterTrade} onChange={(e) => setFilterTrade(e.target.value as Trade | '')}
           className="border border-gray-300 rounded px-2 py-1.5 text-sm">
           <option value="">전체 직종</option>
@@ -334,17 +356,42 @@ export default function ComposePage() {
             <option key={t} value={t}>{TRADE_LABEL[t]} 희망</option>
           ))}
         </select>
+        <select value={filterRegion} onChange={(e) => setFilterRegion(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+          <option value="">전체 지역</option>
+          {regionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+        </select>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+          <option value="CAREER_DESC">경력 높은 순</option>
+          <option value="WAGE_ASC">희망 일당 낮은 순</option>
+          <option value="WAGE_DESC">희망 일당 높은 순</option>
+          <option value="COMPLETED_DESC">완료 작업 많은 순</option>
+          <option value="NAME_ASC">이름 순</option>
+        </select>
+        <label className="flex items-center gap-2 text-xs text-gray-600">
+          <span className="shrink-0">최소 경력</span>
+          <input type="number" min="0" value={minCareer} onChange={(e) => setMinCareer(e.target.value)}
+            placeholder="0" className="min-w-0 w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
+          <span>년</span>
+        </label>
+        <label className="flex items-center gap-2 text-xs text-gray-600">
+          <span className="shrink-0">최대 일당</span>
+          <input type="text" inputMode="numeric" value={maxWage ? commaInputValue(Number(maxWage)) : ''}
+            onChange={(e) => setMaxWage(String(parseDigits(e.target.value) || ''))}
+            placeholder="제한 없음" className="min-w-0 w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
+        </label>
         <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
           <input type="checkbox" checked={onlyNeeded} onChange={(e) => setOnlyNeeded(e.target.checked)}
             className="rounded border-gray-300" />
           부족 직종만
         </label>
-        <span className="text-xs text-gray-400 ml-auto">{filteredCandidates.length}명 표시</span>
+        <span className="text-xs text-gray-400 self-center sm:text-right">{filteredCandidates.length}명 표시</span>
       </div>
 
       {/* 후보 테이블 (모바일: 가로 스크롤) */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
-        <table className="w-full text-sm min-w-[560px]">
+        <table className="w-full text-sm min-w-[700px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="w-10 px-4 py-3"></th>
@@ -354,6 +401,7 @@ export default function ComposePage() {
               <th className="text-right px-4 py-3 text-gray-500 font-medium">희망 일당</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">지역</th>
               <th className="text-center px-4 py-3 text-gray-500 font-medium">배치 가능</th>
+              <th className="text-center px-4 py-3 text-gray-500 font-medium">지원서</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -368,6 +416,7 @@ export default function ComposePage() {
                   className={`transition-colors ${blocked ? 'opacity-50 cursor-not-allowed' : checked ? 'bg-purple-50 cursor-pointer' : 'hover:bg-gray-50 cursor-pointer'}`}>
                   <td className="px-4 py-3">
                     <input type="checkbox" checked={checked} disabled={blocked}
+                      onClick={(event) => event.stopPropagation()}
                       onChange={() => !blocked && toggleWorker(w)}
                       className="rounded border-gray-300" />
                   </td>
@@ -396,6 +445,14 @@ export default function ComposePage() {
                       <span className="text-xs text-green-600">가능</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-center">
+                    <button type="button" onClick={(event) => {
+                      event.stopPropagation();
+                      setDetailWorker(w);
+                    }} className="text-xs font-medium text-purple-700 hover:text-purple-900 hover:underline">
+                      상세 보기
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -411,6 +468,69 @@ export default function ComposePage() {
           {approving ? '처리 중...' : gapMode ? `빈 자리 채우기 (신규 ${selected.length}명)` : `편성 승인 (${selected.length}명)`}
         </button>
       </div>
+
+      {detailWorker && (
+        <WorkerDetailModal worker={detailWorker} onClose={() => setDetailWorker(null)} />
+      )}
+    </div>
+  );
+}
+
+function WorkerDetailModal({ worker, onClose }: { worker: Worker; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog" aria-modal="true" aria-labelledby="manual-worker-detail-title"
+      onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl"
+        onClick={(event) => event.stopPropagation()}>
+        <div className="sticky top-0 flex items-center justify-between border-b border-gray-200 bg-white px-5 py-4">
+          <div>
+            <p className="text-xs font-medium text-purple-600">근로자 지원서</p>
+            <h3 id="manual-worker-detail-title" className="text-lg font-semibold text-gray-800">{worker.name}</h3>
+          </div>
+          <button type="button" onClick={onClose} aria-label="상세 정보 닫기"
+            className="rounded-md px-2 py-1 text-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700">×</button>
+        </div>
+        <div className="space-y-5 p-5">
+          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+            <DetailItem label="연락처" value={worker.phone} />
+            <DetailItem label="나이" value={`${worker.age}세`} />
+            <DetailItem label="지역" value={worker.region} />
+            <DetailItem label="경력" value={`${worker.career_years}년`} />
+            <DetailItem label="희망 일당" value={`${worker.desired_daily_wage.toLocaleString()}원`} />
+            <DetailItem label="완료 작업" value={`${worker.completed_count}건`} />
+          </dl>
+          <DetailTags title="희망 직종" values={worker.preferred_trades.map((trade) => TRADE_LABEL[trade])} />
+          <DetailTags title="비희망 직종" values={worker.excluded_trades.map((trade) => TRADE_LABEL[trade])} tone="red" />
+          <DetailTags title="자격증" values={worker.certifications} />
+          <DetailTags title="보유 작업 능력" values={worker.abilities || []} />
+          <div>
+            <p className="mb-2 text-sm font-medium text-gray-500">자기소개</p>
+            <p className="whitespace-pre-wrap rounded-lg bg-gray-50 p-4 text-sm text-gray-700">
+              {worker.introduction || '작성한 자기소개가 없습니다.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-end border-t border-gray-200 px-5 py-3">
+          <button type="button" onClick={onClose}
+            className="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">닫기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return <div><dt className="text-gray-500">{label}</dt><dd className="mt-1 font-medium text-gray-800">{value}</dd></div>;
+}
+
+function DetailTags({ title, values, tone = 'purple' }: { title: string; values: string[]; tone?: 'purple' | 'red' }) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium text-gray-500">{title}</p>
+      {values.length ? <div className="flex flex-wrap gap-1.5">{values.map((value) => (
+        <span key={value} className={`rounded-full px-2.5 py-1 text-xs ${tone === 'red' ? 'bg-red-50 text-red-700' : 'bg-purple-50 text-purple-700'}`}>{value}</span>
+      ))}</div> : <p className="text-sm text-gray-400">등록된 내용이 없습니다.</p>}
     </div>
   );
 }
