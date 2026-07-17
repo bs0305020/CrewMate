@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api } from '../../api/client';
-import type { SpecReportJobStart, SpecReportJobState, SpecReportRequest, SpecReportResponse, Trade, Worker } from '../../api/types';
+import type { SpecReportJobStart, SpecReportJobState, SpecReportJobSummary, SpecReportRequest, SpecReportResponse, Trade, Worker } from '../../api/types';
 import MarkdownReport, { humanizeReportText } from '../../components/MarkdownReport';
 
 const LAST_REPORT_JOB_KEY = 'crewmate:last-spec-report-job';
@@ -25,6 +25,14 @@ export default function ReportPage() {
   const [result, setResult] = useState<SpecReportResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [jobId, setJobId] = useState<string | null>(() => localStorage.getItem(LAST_REPORT_JOB_KEY));
+  const [savedReports, setSavedReports] = useState<SpecReportJobSummary[]>([]);
+
+  const loadSavedReports = useCallback(async () => {
+    const response = await api.get<SpecReportJobSummary[]>('/reports/spec-gap/jobs');
+    if (response.success) setSavedReports(response.data);
+  }, []);
+
+  useEffect(() => { loadSavedReports(); }, [loadSavedReports]);
 
   useEffect(() => {
     (async () => {
@@ -60,6 +68,7 @@ export default function ReportPage() {
         }
         setLoading(false);
         stopPolling();
+        loadSavedReports();
         return;
       }
       if (response.data.status === 'COMPLETED' && response.data.report) {
@@ -88,7 +97,7 @@ export default function ReportPage() {
       cancelled = true;
       stopPolling();
     };
-  }, [jobId]);
+  }, [jobId, loadSavedReports]);
 
   const inputSummary = useMemo(() => ({
     certifications: worker?.certifications || [],
@@ -117,10 +126,18 @@ export default function ReportPage() {
     }
   };
 
+  const openSavedReport = (saved: SpecReportJobSummary) => {
+    if (saved.status !== 'COMPLETED') return;
+    localStorage.setItem(LAST_REPORT_JOB_KEY, saved.reportId);
+    setResult(null);
+    setLoading(true);
+    setJobId(saved.reportId);
+  };
+
   return (
-    <div className="max-w-lg mx-auto space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="max-w-lg mx-auto space-y-4 min-w-0">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <p className="text-xs text-green-700 font-medium">자격·NCS 근거 분석</p>
           <h2 className="text-xl font-semibold text-gray-800">내 스펙 보완 보고서</h2>
         </div>
@@ -148,13 +165,41 @@ export default function ReportPage() {
         <p className="text-xs text-gray-400">완료 보고서는 S3에 저장되어 다시 열 수 있으며, 31일 후 Standard-IA로 전환되고 61일 후 삭제됩니다.</p>
       </section>
 
+      <section className="bg-white rounded-lg border border-gray-200 p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h3 className="font-semibold text-gray-800">이전 스펙 보고서</h3>
+          <span className="text-xs text-gray-400">{savedReports.length}개</span>
+        </div>
+        {savedReports.length === 0 ? (
+          <p className="text-sm text-gray-400">저장된 보고서가 없습니다.</p>
+        ) : (
+          <div className="space-y-2">
+            {savedReports.map((saved) => (
+              <button key={saved.reportId} type="button" onClick={() => openSavedReport(saved)}
+                disabled={saved.status !== 'COMPLETED'}
+                className="w-full text-left border border-gray-200 rounded-lg px-3 py-3 hover:border-green-300 hover:bg-green-50 disabled:hover:bg-white disabled:opacity-60 transition-colors">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-sm font-medium text-gray-800 break-words">{saved.targetTrade}</span>
+                  <span className={`text-xs ${saved.status === 'COMPLETED' ? 'text-green-700' : saved.status === 'FAILED' ? 'text-red-600' : 'text-indigo-600'}`}>
+                    {saved.status === 'COMPLETED' ? '보기' : saved.status === 'FAILED' ? '생성 실패' : '생성 중'}
+                  </span>
+                </div>
+                <span className="block text-xs text-gray-400 mt-1">
+                  {saved.createdAt ? new Date(saved.createdAt).toLocaleString('ko-KR') : '생성 시각 확인 중'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
       {loading && (
         <ReportSkeleton />
       )}
 
       {result && (
         <>
-          <section className="grid grid-cols-3 gap-2">
+          <section className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-2">
             <Metric label="충족 자격그룹" value={`${result.report.satisfiedCertificationGroups.length}개`} />
             <Metric label="부족 핵심그룹" value={`${result.report.missingCoreCertificationGroups.length}개`} tone="red" />
             <Metric label="능력 커버리지" value={`${result.report.abilityCoverage.percentage}%`} />
@@ -178,7 +223,7 @@ export default function ReportPage() {
           </section>
 
           {result.markdown ? (
-            <section className="bg-white rounded-lg border border-gray-200 p-6">
+            <section className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6 min-w-0">
               <h3 className="font-semibold text-gray-800 mb-4">전체 보고서</h3>
               <MarkdownReport markdown={result.markdown} />
             </section>

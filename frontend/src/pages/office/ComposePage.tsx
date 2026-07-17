@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { Worker, WorkRequest, Crew, CrewMember, Trade, RequiredTrade, RequiredWorker } from '../../api/types';
 import { tradeMeta } from '../../lib/trades';
@@ -36,6 +36,7 @@ interface SelectedMember {
 export default function ComposePage() {
   const { requestId } = useParams<{ requestId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [request, setRequest] = useState<WorkRequest | null>(null);
   const [candidates, setCandidates] = useState<Worker[]>([]);
@@ -70,10 +71,18 @@ export default function ComposePage() {
           }
         }
       }
-      if (workersRes.success) setCandidates(workersRes.data.filter((w) => w.state === 'READY'));
+      if (workersRes.success) {
+        const ready = workersRes.data.filter((w) => w.state === 'READY');
+        setCandidates(ready);
+        const recommended = (location.state as { recommendedMembers?: SelectedMember[] } | null)?.recommendedMembers || [];
+        if (recommended.length > 0) {
+          const readyIds = new Set(ready.map((worker) => worker.worker_id));
+          setSelected(recommended.filter((member) => readyIds.has(member.worker_id)));
+        }
+      }
       setLoading(false);
     })();
-  }, [requestId]);
+  }, [requestId, location.state]);
 
   const gapMode = fixedMembers.length > 0;
 
@@ -226,8 +235,8 @@ export default function ComposePage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-gray-800">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-xl font-semibold text-gray-800 break-words">
           {gapMode ? '빈 자리 채우기' : '수동 편성'} — {request.site_name}
         </h2>
         <button onClick={() => navigate(`/office/requests/${requestId}`)}

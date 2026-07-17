@@ -17,7 +17,7 @@ export default function HistoryPage() {
 
   return (
     <div className="max-w-lg mx-auto space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold text-gray-800">작업 이력</h2>
         <button onClick={() => navigate('/worker')}
           className="text-sm text-gray-500 hover:text-gray-800">← 돌아가기</button>
@@ -41,8 +41,8 @@ export default function HistoryPage() {
           <div className="space-y-3">
             {history.map((entry, idx) => (
               <article key={`${entry.crew_id}-${idx}`} className="text-sm border border-gray-200 rounded-lg p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
                     <p className="font-semibold text-gray-800">{entry.site_name}</p>
                     {entry.company_name && <p className="text-xs text-gray-500 mt-0.5">{entry.company_name}</p>}
                   </div>

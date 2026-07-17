@@ -6,7 +6,7 @@ import type { WorkRequest, WorkRequestStatus } from '../../api/types';
 
 const STATUS_CONFIG: Record<WorkRequestStatus, { label: string; color: string }> = {
   REQUESTED: { label: '요청됨', color: 'bg-yellow-100 text-yellow-700' },
-  COMPOSING: { label: 'AI 편성 중', color: 'bg-indigo-100 text-indigo-700' },
+  COMPOSING: { label: '편성 중', color: 'bg-indigo-100 text-indigo-700' },
   PROPOSED: { label: '추천 완료', color: 'bg-indigo-100 text-indigo-700' },
   APPROVED: { label: '수락 대기', color: 'bg-blue-100 text-blue-700' },
   DISPATCHED: { label: '배차 완료', color: 'bg-teal-100 text-teal-700' },
@@ -58,7 +58,7 @@ export default function CompanyHomePage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold text-gray-800">인력 요청 관리</h2>
         <button
           onClick={() => navigate('/company/requests/new')}
@@ -116,15 +116,15 @@ export default function CompanyHomePage() {
                 onClick={() => navigate(`/company/requests/${req.request_id}`)}
                 className="bg-white rounded-lg border border-gray-200 p-5 hover:border-orange-300 hover:shadow-sm cursor-pointer transition-all"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-medium text-gray-800">{req.site_name}</h3>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <h3 className="font-medium text-gray-800 break-words">{req.site_name}</h3>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusInfo.color}`}>
                         {statusInfo.label}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500">{req.location_text}</p>
+                    <p className="text-sm text-gray-500 break-words">{req.location_text}</p>
                   </div>
                   <div className="text-right text-sm">
                     <p className="text-gray-800 font-medium">{req.work_date}</p>
@@ -132,12 +132,12 @@ export default function CompanyHomePage() {
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                   <span>필요 인원: {totalWorkers}명</span>
                   <span>
                     {req.required_workers.map((w) => `${TRADE_LABEL[w.trade] || w.trade} ${w.count}명`).join(', ')}
                   </span>
-                  <span className="ml-auto">예산: {req.budget.toLocaleString()}원</span>
+                  <span className="sm:ml-auto">예산: {req.budget.toLocaleString()}원</span>
                 </div>
               </div>
             );

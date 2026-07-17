@@ -170,6 +170,7 @@ export interface WorkRequest {
   notes: string;
   status: WorkRequestStatus;
   rejection_reason?: string;
+  composition_error?: string;
   declined_worker_ids?: string[];
   company_name?: string; // office 화면에서 요청한 건설사 표시용
   created_at: string;
@@ -388,6 +389,15 @@ export interface SpecReportJobState {
   markdown?: string;
   persisted?: boolean;
   error?: { code: string; message: string };
+}
+
+export interface SpecReportJobSummary {
+  reportId: string;
+  targetTrade: string;
+  status: 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  createdAt?: string;
+  completedAt?: string;
+  errorCode?: string;
 }
 
 // === Company API 요청 ===

@@ -520,6 +520,20 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     return { success: true, data: job };
   },
 
+  'GET /reports/spec-gap/jobs': async () => {
+    const jobs = [...mockReportJobs.values()]
+      .map((job) => ({
+        reportId: job.reportId || '',
+        targetTrade: job.report?.targetTrade || '분석 중',
+        status: job.status,
+        createdAt: job.report?.generatedAt,
+        completedAt: job.status === 'COMPLETED' ? job.report?.generatedAt : undefined,
+        errorCode: job.error?.code,
+      }))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return { success: true, data: jobs };
+  },
+
   'GET /office/requests': async () => {
     await delay(150);
     const items = mockState.requests
@@ -790,8 +804,9 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     // 거절한 근로자는 후보에서 제외
     const declinedIds = request.declined_worker_ids || [];
     const readyCandidates = mockState.workers.filter((w) => w.state === 'READY' && w.office_id === 'OFFICE001' && !declinedIds.includes(w.worker_id));
-    if (readyCandidates.length < request.required_workers.reduce((s, rw) => s + rw.count, 0)) {
-      return { success: false, error: { code: 'AGENT_RETRY_FAILED', message: 'READY 상태 후보가 부족하여 AI 편성에 실패했습니다. 수동 편성으로 진행해주세요.' } };
+    const requiredCount = request.required_workers.reduce((s, rw) => s + rw.count, 0);
+    if (readyCandidates.length < requiredCount) {
+      return { success: false, error: { code: 'AGENT_RETRY_FAILED', message: `편성에 필요한 인원은 ${requiredCount}명이지만 현재 대기 중인 후보는 ${readyCandidates.length}명입니다. 근로자 대기 상태와 필요 인원을 확인해주세요.` } };
     }
 
     // 간단한 mock 추천 생성: 후보를 셔플해서 3안 만들기
@@ -822,17 +837,21 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
         }
       }
 
-      // 인원 충족 + 예산 이내 + 중복 조합 아닌 것만 추가
+      // 인원 충족 조합은 예산 초과여도 임금 조정 후보로 제공한다.
       const withinBudget = request.budget <= 0 || costTotal <= request.budget;
       const isDuplicate = recommendations.some((r) => r.member_ids.slice().sort().join(',') === members.map((m) => m.worker_id).sort().join(','));
-      if (members.length >= totalNeeded && withinBudget && !isDuplicate) {
-        const reasons = ['필수 직종 구성 충족', '예산 범위 내', rankCounter === 1 ? '최저 비용 우선' : '경력 균형'];
+      if (members.length >= totalNeeded && !isDuplicate) {
+        const excess = Math.max(0, costTotal - request.budget);
+        const budgetReason = withinBudget ? '예산 범위 내' : `⚠ 예산 ${excess.toLocaleString()}원 초과 — 임금 수정 필요`;
+        const reasons = ['필수 직종 구성 충족', budgetReason, rankCounter === 1 ? '최저 비용 우선' : '경력 균형'];
         recommendations.push({
           rank: rankCounter,
           member_ids: members.map((m) => m.worker_id),
           members,
           total_cost: costTotal,
-          reason: `${reasons.join(', ')} 기준으로 구성한 ${rankCounter}안입니다.`,
+          reason: withinBudget
+            ? `${reasons.join(', ')} 기준으로 구성한 ${rankCounter}안입니다.`
+            : `${budgetReason}. 필요한 직종과 인원은 충족하므로 임금을 조정한 뒤 승인할 수 있습니다.`,
           considerations: reasons,
           fitness: computeFitness(members, request.budget, request.priority),
         });
@@ -841,7 +860,7 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     }
 
     if (recommendations.length === 0) {
-      return { success: false, error: { code: 'AGENT_RETRY_FAILED', message: '예산 범위 내에서 가능한 조합을 찾지 못했습니다. 예산을 조정하거나 수동 편성으로 진행해주세요.' } };
+      return { success: false, error: { code: 'AGENT_RETRY_FAILED', message: '각 직종 후보는 있으나 한 근로자를 중복 배정하지 않고 모든 조건을 동시에 충족하는 조합이 없습니다. 필요 인원이나 직종 조건을 조정해주세요.' } };
     }
 
     // 기존 crew 정리 (재편성 시 옛 거절 crew 제거)
@@ -1010,7 +1029,7 @@ export const handlers: Record<string, (body?: unknown, pathParam?: string) => Pr
     if (recommendations.length === 0) {
       // 실패 → FAILED
       mockState.gapEvents[evIdx] = { ...mockState.gapEvents[evIdx], status: 'FAILED', updated_at: now() };
-      return { success: false, error: { code: 'AGENT_RETRY_FAILED', message: '대체 가능한 인력을 찾지 못했습니다. 수동 편성 또는 편성 취소가 필요합니다.' } };
+      return { success: false, error: { code: 'AGENT_RETRY_FAILED', message: '현재 조건에서 대체 가능한 근로자를 찾지 못했습니다. 근로자 대기 상태를 확인하거나 수동 편성을 이용해주세요.' } };
     }
 
     // PROPOSED 전이 + 추천 저장

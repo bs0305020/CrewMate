@@ -60,7 +60,7 @@ export default function OfficeHomePage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold text-gray-800">인력 요청 관리</h2>
         <button onClick={() => navigate('/office/workers')}
           className="text-sm text-purple-600 hover:text-purple-800 transition-colors">
@@ -107,8 +107,8 @@ export default function OfficeHomePage() {
               <div key={req.request_id}
                 onClick={() => navigate(`/office/requests/${req.request_id}`)}
                 className="bg-white rounded-lg border border-gray-200 p-5 hover:border-purple-300 hover:shadow-sm cursor-pointer transition-all">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <h3 className="font-medium text-gray-800">{req.site_name}</h3>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
@@ -117,17 +117,17 @@ export default function OfficeHomePage() {
                     {req.company_name && (
                       <p className="text-xs text-gray-500 mb-0.5">🏢 {req.company_name}</p>
                     )}
-                    <p className="text-sm text-gray-500">{req.location_text}</p>
+                    <p className="text-sm text-gray-500 break-words">{req.location_text}</p>
                   </div>
                   <div className="text-right text-sm">
                     <p className="text-gray-800 font-medium">{req.work_date}</p>
                     <p className="text-gray-400">{req.start_time}</p>
                   </div>
                 </div>
-                <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                   <span>필요 인원: {totalWorkers}명</span>
                   <span>{req.required_workers.map((w) => `${TRADE_LABEL[w.trade] || w.trade} ${w.count}명`).join(', ')}</span>
-                  <span className="ml-auto">총예산: {req.budget.toLocaleString()}원</span>
+                  <span className="sm:ml-auto">총예산: {req.budget.toLocaleString()}원</span>
                 </div>
               </div>
             );

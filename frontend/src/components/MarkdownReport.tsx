@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
 
 const NCS_CODE = /\s*\(?\b\d{8,12}_\d+(?:v\d+)?\b\)?/gi;
+const REPORT_ID_SUFFIX = /\s*\((?:spec-[a-f0-9]+|mock-\d+|[0-9a-f]{8}-[0-9a-f-]{27,})\)\s*$/i;
 
 export function humanizeReportText(value: string): string {
   return value
     .replace(NCS_CODE, '')
+    .replace(REPORT_ID_SUFFIX, '')
     .replace(/\s+—\s*$/g, '')
     .replace(/\(\s*\)/g, '')
     .replace(/[ \t]{2,}/g, ' ')

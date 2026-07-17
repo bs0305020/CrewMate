@@ -67,7 +67,7 @@ export default function WorkersPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold text-gray-800">소속 근로자</h2>
         <button onClick={() => navigate('/office')} className="text-sm text-gray-500 hover:text-gray-800">
           ← 요청 목록으로
@@ -145,8 +145,8 @@ export default function WorkersPage() {
       {loading && !workers ? (
         <p className="text-center text-gray-400 py-6">불러오는 중...</p>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+          <table className="w-full text-sm min-w-[720px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">이름</th>

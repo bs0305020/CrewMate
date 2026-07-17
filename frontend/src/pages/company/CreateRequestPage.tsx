@@ -137,7 +137,7 @@ export default function CreateRequestPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between mb-6">
         <h2 className="text-xl font-semibold text-gray-800">인력 요청 생성</h2>
         <button
           onClick={() => navigate('/company')}
@@ -147,7 +147,7 @@ export default function CreateRequestPage() {
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-gray-200 p-6 space-y-5">
+      <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6 space-y-5 min-w-0">
         {/* 인력사무소 선택 */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">인력사무소 *</label>
@@ -179,7 +179,7 @@ export default function CreateRequestPage() {
         </div>
 
         {/* 작업일 + 시작 시간 */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">작업일 *</label>
             <input

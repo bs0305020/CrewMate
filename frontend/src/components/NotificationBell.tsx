@@ -66,7 +66,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+        <div className="absolute right-0 mt-2 w-[calc(100vw-1.5rem)] max-w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
             <span className="text-sm font-medium text-gray-800">알림</span>
             {unreadCount > 0 && (
@@ -89,7 +89,7 @@ export default function NotificationBell() {
                   {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800">{n.title}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{n.message}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 break-words">{n.message}</p>
                     <p className="text-[10px] text-gray-400 mt-1">{timeAgo(n.created_at)}</p>
                   </div>
                 </div>

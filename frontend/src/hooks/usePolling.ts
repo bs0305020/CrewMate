@@ -11,19 +11,25 @@ export function usePolling<T>({ fetchFn, interval = 5000, enabled = true }: UseP
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  const requestSequenceRef = useRef(0);
   const fetchRef = useRef(fetchFn);
   fetchRef.current = fetchFn;
 
   const execute = useCallback(async () => {
+    const sequence = ++requestSequenceRef.current;
     setLoading(true);
     try {
       const result = await fetchRef.current();
-      setData(result);
-      setError(null);
+      if (sequence === requestSequenceRef.current) {
+        setData(result);
+        setError(null);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '데이터를 불러올 수 없습니다.');
+      if (sequence === requestSequenceRef.current) {
+        setError(e instanceof Error ? e.message : '데이터를 불러올 수 없습니다.');
+      }
     } finally {
-      setLoading(false);
+      if (sequence === requestSequenceRef.current) setLoading(false);
     }
   }, []);
 

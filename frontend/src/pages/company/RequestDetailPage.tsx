@@ -13,7 +13,7 @@ const GAP_STEP_LABEL: Record<string, string> = {
 const STATUS_STEPS: WorkRequestStatus[] = ['REQUESTED', 'APPROVED', 'DISPATCHED', 'RUNNING', 'COMPLETED'];
 
 const STATUS_LABEL: Record<string, string> = {
-  REQUESTED: '요청됨', COMPOSING: 'AI 편성 중', PROPOSED: '추천 완료',
+  REQUESTED: '요청됨', COMPOSING: '편성 중', PROPOSED: '추천 완료',
   APPROVED: '수락 대기', DISPATCHED: '배차 완료', RUNNING: '작업 중',
   COMPLETED: '완료', CANCELLED: '취소', REJECTED: '거절됨',
 };
@@ -108,10 +108,10 @@ export default function RequestDetailPage() {
   const canCancelRequest = !['RUNNING', 'COMPLETED', 'CANCELLED', 'REJECTED'].includes(detail.status);
 
   return (
-    <div className="max-w-2xl mx-auto space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-gray-800">{detail.site_name}</h2>
-        <div className="flex items-center gap-2">
+    <div className="max-w-2xl mx-auto space-y-5 min-w-0">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-xl font-semibold text-gray-800 break-words min-w-0">{detail.site_name}</h2>
+        <div className="flex flex-wrap items-center gap-2">
           {canCancelRequest && (
             <button onClick={handleCancelRequest} disabled={cancellingRequest}
               className="border border-red-300 text-red-600 px-3 py-1.5 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50">
@@ -185,10 +185,10 @@ export default function RequestDetailPage() {
       {/* 요청 정보 */}
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <h3 className="text-sm font-medium text-gray-500 mb-3">요청 정보</h3>
-        <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div><span className="text-gray-500">작업일</span><p className="font-medium text-gray-800">{detail.work_date}</p></div>
           <div><span className="text-gray-500">시작 시간</span><p className="font-medium text-gray-800">{detail.start_time}</p></div>
-          <div className="col-span-2"><span className="text-gray-500">위치</span><p className="font-medium text-gray-800">{detail.location_text}</p></div>
+          <div className="sm:col-span-2"><span className="text-gray-500">위치</span><p className="font-medium text-gray-800 break-words">{detail.location_text}</p></div>
           <div><span className="text-gray-500">총예산</span><p className="font-medium text-gray-800">{detail.budget.toLocaleString()}원</p></div>
           <div><span className="text-gray-500">우선순위</span><p className="font-medium text-gray-800 text-xs">비용 {PRIORITY_LABEL[detail.priority.cost]} / 경력 {PRIORITY_LABEL[detail.priority.career]} / 팀워크 {PRIORITY_LABEL[detail.priority.teamwork]}</p></div>
         </div>
@@ -208,8 +208,8 @@ export default function RequestDetailPage() {
               const canCheckout = member.worker_state === 'RUNNING' && showAttendance;
 
               return (
-                <div key={member.worker_id} className={`flex items-center justify-between text-sm py-2.5 px-3 rounded ${member.is_replacement ? 'bg-green-50 ring-1 ring-green-300' : 'bg-orange-50'}`}>
-                  <div className="flex items-center gap-2">
+                <div key={member.worker_id} className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm py-2.5 px-3 rounded ${member.is_replacement ? 'bg-green-50 ring-1 ring-green-300' : 'bg-orange-50'}`}>
+                  <div className="flex flex-wrap items-center gap-2 min-w-0">
                     {member.is_replacement && (
                       <span className="text-xs bg-green-600 text-white px-1.5 py-0.5 rounded-full">신규 투입</span>
                     )}
@@ -228,7 +228,7 @@ export default function RequestDetailPage() {
                       <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">🕒 도착 {member.eta}</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-gray-400">{member.offered_wage.toLocaleString()}원</span>
                     {canCheckin && (
                       <button onClick={() => handleCheckin(member.worker_id, member.name)}

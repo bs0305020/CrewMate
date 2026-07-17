@@ -87,21 +87,6 @@ export default function OfficeRequestDetailPage() {
     }
   };
 
-  const [cancellingComposition, setCancellingComposition] = useState(false);
-  const handleCancelComposition = async () => {
-    if (!detail?.crew) return;
-    if (!confirm('편성을 전체 취소하시겠습니까?\n건설사에 취소 요청이 전달되고, 수락한 근로자는 다시 대기 상태로 전환됩니다.')) return;
-    setCancellingComposition(true);
-    const res = await api.post<Crew>(`/office/crews/${detail.crew.crew_id}/cancel-composition`);
-    setCancellingComposition(false);
-    if (res.success) {
-      toast.success('편성이 취소되었습니다. 건설사에 취소 요청을 전달했습니다.');
-      refetch();
-    } else {
-      toast.error(res.error.message);
-    }
-  };
-
   const handleAiCompose = async () => {
     setAiLoading(true);
     setAiError('');
@@ -133,7 +118,7 @@ export default function OfficeRequestDetailPage() {
   const canCompose = detail.status === 'REQUESTED';
   const hasDeclined = detail.crew?.members.some((m) => m.acceptance === 'DECLINED');
   const hasFixed = detail.crew?.members.some((m) => m.acceptance !== 'DECLINED');
-  const isProposed = detail.status === 'PROPOSED' && detail.crew?.recommendations;
+  const isProposed = detail.crew?.status === 'PROPOSED' && Boolean(detail.crew.recommendations?.length);
   // 노쇼로 인한 긴급 재편성 진행 중 (GapEvent 존재)
   const activeGap = detail.activeGap;
   const isEmergency = !!activeGap;
@@ -141,12 +126,17 @@ export default function OfficeRequestDetailPage() {
   const needsGapFill = hasDeclined && hasFixed && !isEmergency;
   // 전체 재편성: 전원 거절 (유지할 멤버 없음, 긴급건 아님)
   const needsFullRecompose = hasDeclined && !hasFixed && !isEmergency;
-  // 편성 완료(제안 발송/배차) 후에도 작업 시작 전이면 편성 취소 가능 (B-5).
-  // 긴급/빈자리 재편성 중에도 "재편성 대신 아예 취소"를 선택할 수 있도록 함께 노출한다.
-  const canCancelComposition = !!detail.crew
-    && ['APPROVED', 'NOTIFIED', 'DISPATCHED'].includes(detail.crew.status)
-    && detail.status !== 'RUNNING' && detail.status !== 'COMPLETED';
   const canRejectRequest = ['REQUESTED', 'COMPOSING', 'PROPOSED', 'APPROVED'].includes(detail.status);
+  const recommendationExceedsBudget = (rec: Recommendation) => detail.budget > 0 && rec.total_cost > detail.budget;
+  const editRecommendation = (rec: Recommendation) => navigate(`/office/compose/${requestId}`, {
+    state: {
+      recommendedMembers: rec.members.map((member) => ({
+        worker_id: member.worker_id,
+        assigned_trade: member.assigned_trade,
+        offered_wage: member.offered_wage,
+      })),
+    },
+  });
 
   const GAP_STEPS = ['DETECTED', 'RECOMPOSING', 'PROPOSED', 'APPROVED', 'FILLED'];
   const GAP_STEP_LABEL: Record<string, string> = {
@@ -154,9 +144,9 @@ export default function OfficeRequestDetailPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="max-w-3xl mx-auto space-y-5 min-w-0">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-xl font-semibold text-gray-800">{detail.site_name}</h2>
           {detail.company_name && <p className="text-sm text-gray-500 mt-0.5">🏢 {detail.company_name}</p>}
         </div>
@@ -212,12 +202,6 @@ export default function OfficeRequestDetailPage() {
               </button>
             </>
           )}
-          {canCancelComposition && (
-            <button onClick={handleCancelComposition} disabled={cancellingComposition}
-              className="bg-white border border-red-300 text-red-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors">
-              {cancellingComposition ? '취소 중...' : '편성 취소'}
-            </button>
-          )}
           {canRejectRequest && (
             <button onClick={() => setShowRejectModal(true)} disabled={rejecting}
               className="bg-white border border-red-300 text-red-600 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors">
@@ -227,7 +211,7 @@ export default function OfficeRequestDetailPage() {
         </div>
       </div>
 
-      {detail.status === 'COMPOSING' && (
+      {detail.status === 'COMPOSING' && !detail.crew?.recommendations?.length && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
           <div className="h-3 bg-indigo-200 rounded animate-pulse w-1/3 mb-2" />
           <p className="text-sm text-indigo-700">AI가 후보와 편성 조건을 분석 중입니다. 다른 화면으로 이동해도 작업은 계속됩니다.</p>
@@ -261,10 +245,10 @@ export default function OfficeRequestDetailPage() {
       )}
 
       {/* AI 에러 */}
-      {aiError && (
+      {(aiError || detail.composition_error) && (
         <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
           <p className="text-yellow-800 font-medium text-sm">AI 편성 실패</p>
-          <p className="text-yellow-700 text-sm mt-1">{aiError}</p>
+          <p className="text-yellow-700 text-sm mt-1">{aiError || detail.composition_error}</p>
           <button onClick={() => navigate(`/office/compose/${requestId}`)}
             className="mt-2 text-sm text-purple-600 hover:underline">수동 편성으로 진행 →</button>
         </div>
@@ -303,8 +287,8 @@ export default function OfficeRequestDetailPage() {
               className={`bg-white rounded-lg border-2 p-5 cursor-pointer transition-all ${
                 selectedRank === idx ? 'border-indigo-500 shadow-md' : 'border-gray-200 hover:border-indigo-300'
               }`}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
                   <span className="text-sm font-bold text-indigo-700">AI 추천 {rec.rank}안</span>
                   {typeof rec.fitness === 'number' && (
                     <span className="text-xs font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
@@ -316,8 +300,8 @@ export default function OfficeRequestDetailPage() {
               </div>
               <div className="space-y-1.5 mb-3">
                 {rec.members.map((m) => (
-                  <div key={m.worker_id} className="flex items-center justify-between text-sm py-1 px-2 bg-indigo-50 rounded">
-                    <div className="flex items-center gap-2">
+                  <div key={m.worker_id} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between text-sm py-2 px-2 bg-indigo-50 rounded">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <span className="font-medium text-gray-800">{m.name}</span>
                       <span className="text-xs text-gray-500">{TRADE_LABEL[m.assigned_trade]}</span>
                     </div>
@@ -326,6 +310,11 @@ export default function OfficeRequestDetailPage() {
                 ))}
               </div>
               <p className="text-sm text-gray-600 bg-gray-50 rounded p-2">{rec.reason}</p>
+              {recommendationExceedsBudget(rec) && (
+                <p className="mt-2 text-sm font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
+                  ⚠ 예산을 {(rec.total_cost - detail.budget).toLocaleString()}원 초과합니다. 임금을 조정한 뒤 승인해주세요.
+                </p>
+              )}
               {rec.considerations && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {rec.considerations.map((c, i) => (
@@ -334,10 +323,17 @@ export default function OfficeRequestDetailPage() {
                 </div>
               )}
               {selectedRank === idx && (
-                <button onClick={() => handleApproveRecommendation(rec)} disabled={approving}
-                  className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                  {approving ? '승인 처리 중...' : `${rec.rank}안 승인`}
-                </button>
+                recommendationExceedsBudget(rec) ? (
+                  <button onClick={(event) => { event.stopPropagation(); editRecommendation(rec); }}
+                    className="mt-3 w-full bg-amber-600 text-white py-2 rounded-md text-sm font-medium hover:bg-amber-700 transition-colors">
+                    임금 조정하기
+                  </button>
+                ) : (
+                  <button onClick={() => handleApproveRecommendation(rec)} disabled={approving}
+                    className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                    {approving ? '승인 처리 중...' : `${rec.rank}안 승인`}
+                  </button>
+                )
               )}
             </div>
           ))}
@@ -372,10 +368,10 @@ export default function OfficeRequestDetailPage() {
       {/* 요청 정보 */}
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <h3 className="text-sm font-medium text-gray-500 mb-3">요청 정보</h3>
-        <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div><span className="text-gray-500">작업일</span><p className="font-medium text-gray-800">{detail.work_date}</p></div>
           <div><span className="text-gray-500">시작 시간</span><p className="font-medium text-gray-800">{detail.start_time}</p></div>
-          <div className="col-span-2"><span className="text-gray-500">위치</span><p className="font-medium text-gray-800">{detail.location_text}</p></div>
+          <div className="sm:col-span-2"><span className="text-gray-500">위치</span><p className="font-medium text-gray-800 break-words">{detail.location_text}</p></div>
           <div><span className="text-gray-500">총예산</span><p className="font-medium text-gray-800">{detail.budget.toLocaleString()}원</p></div>
           <div><span className="text-gray-500">우선순위</span><p className="font-medium text-gray-800 text-xs">비용 {PRIORITY_LABEL[detail.priority.cost]} / 경력 {PRIORITY_LABEL[detail.priority.career]} / 팀워크 {PRIORITY_LABEL[detail.priority.teamwork]}</p></div>
         </div>
@@ -407,8 +403,8 @@ export default function OfficeRequestDetailPage() {
               const isPending = member.acceptance === 'PENDING';
               const isTimedOut = isPending && member.notified_at && (Date.now() - new Date(member.notified_at).getTime() > OFFER_TIMEOUT_MS);
               return (
-                <div key={member.worker_id} className={`flex items-center justify-between text-sm py-2.5 px-3 rounded ${isPending ? 'bg-yellow-50' : 'bg-purple-50'}`}>
-                  <div className="flex items-center gap-2">
+                <div key={member.worker_id} className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm py-2.5 px-3 rounded ${isPending ? 'bg-yellow-50' : 'bg-purple-50'}`}>
+                  <div className="flex flex-wrap items-center gap-2 min-w-0">
                     <span className="font-medium text-gray-800">{member.name}</span>
                     <span className="text-xs text-gray-500">{TRADE_LABEL[member.assigned_trade]}</span>
                     {member.acceptance !== 'ACCEPTED' && <span className={`text-xs px-1.5 py-0.5 rounded-full ${accInfo.color}`}>{accInfo.label}</span>}
