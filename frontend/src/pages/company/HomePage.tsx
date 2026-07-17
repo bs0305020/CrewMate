@@ -28,6 +28,11 @@ const TRADE_LABEL: Record<string, string> = {
 export default function CompanyHomePage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<'active' | 'dispatched' | 'done'>('active');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<WorkRequestStatus | ''>('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortBy, setSortBy] = useState('WORK_DATE_ASC');
 
   const fetchRequests = useCallback(async () => {
     const res = await api.get<WorkRequest[]>('/company/requests');
@@ -44,11 +49,23 @@ export default function CompanyHomePage() {
   const dispatchedStatuses: WorkRequestStatus[] = ['DISPATCHED', 'RUNNING'];
   const doneStatuses: WorkRequestStatus[] = ['COMPLETED', 'REJECTED', 'CANCELLED'];
 
-  const filtered = (requests || []).filter((r) => {
-    if (tab === 'active') return activeStatuses.includes(r.status);
-    if (tab === 'dispatched') return dispatchedStatuses.includes(r.status);
-    return doneStatuses.includes(r.status);
-  });
+  const statusesForTab = tab === 'active' ? activeStatuses : tab === 'dispatched' ? dispatchedStatuses : doneStatuses;
+  const normalizedSearch = search.trim().toLocaleLowerCase('ko');
+  const filtered = (requests || [])
+    .filter((request) => statusesForTab.includes(request.status))
+    .filter((request) => !statusFilter || request.status === statusFilter)
+    .filter((request) => !normalizedSearch
+      || request.site_name.toLocaleLowerCase('ko').includes(normalizedSearch)
+      || request.location_text.toLocaleLowerCase('ko').includes(normalizedSearch))
+    .filter((request) => !dateFrom || request.work_date >= dateFrom)
+    .filter((request) => !dateTo || request.work_date <= dateTo)
+    .sort((a, b) => {
+      if (sortBy === 'WORK_DATE_DESC') return b.work_date.localeCompare(a.work_date);
+      if (sortBy === 'CREATED_DESC') return b.created_at.localeCompare(a.created_at);
+      if (sortBy === 'BUDGET_DESC') return b.budget - a.budget;
+      if (sortBy === 'BUDGET_ASC') return a.budget - b.budget;
+      return a.work_date.localeCompare(b.work_date);
+    });
 
   const counts = {
     active: (requests || []).filter((r) => activeStatuses.includes(r.status)).length,
@@ -75,13 +92,42 @@ export default function CompanyHomePage() {
           { key: 'dispatched' as const, label: `배차 완료 (${counts.dispatched})` },
           { key: 'done' as const, label: `완료 (${counts.done})` },
         ]).map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+          <button key={t.key} onClick={() => { setTab(t.key); setStatusFilter(''); }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               tab === t.key ? 'border-orange-600 text-orange-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
             {t.label}
           </button>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 bg-white p-3 sm:grid-cols-2 lg:grid-cols-5">
+        <input value={search} onChange={(event) => setSearch(event.target.value)}
+          placeholder="현장명·지역 검색"
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm" />
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as WorkRequestStatus | '')}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm">
+          <option value="">전체 상태</option>
+          {statusesForTab.map((status) => <option key={status} value={status}>{STATUS_CONFIG[status].label}</option>)}
+        </select>
+        <label className="flex items-center gap-2 text-xs text-gray-500">
+          <span className="shrink-0">시작일</span>
+          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)}
+            className="min-w-0 w-full rounded-md border border-gray-300 px-2 py-2 text-sm text-gray-700" />
+        </label>
+        <label className="flex items-center gap-2 text-xs text-gray-500">
+          <span className="shrink-0">종료일</span>
+          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)}
+            className="min-w-0 w-full rounded-md border border-gray-300 px-2 py-2 text-sm text-gray-700" />
+        </label>
+        <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm">
+          <option value="WORK_DATE_ASC">작업일 빠른 순</option>
+          <option value="WORK_DATE_DESC">작업일 늦은 순</option>
+          <option value="CREATED_DESC">최근 요청 순</option>
+          <option value="BUDGET_DESC">예산 높은 순</option>
+          <option value="BUDGET_ASC">예산 낮은 순</option>
+        </select>
       </div>
 
       {loading && !requests && (
