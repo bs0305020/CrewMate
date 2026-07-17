@@ -41,6 +41,14 @@ COMPANY_META = {
     "COMPANY002": ("김해종합건설", "경남 김해시"),
 }
 
+ABILITY_BY_TRADE = {
+    "FORMWORK": ["거푸집 설치", "거푸집 해체", "도면 확인"],
+    "REBAR": ["철근 가공", "철근 조립", "배근도 확인"],
+    "MASONRY": ["벽돌 쌓기", "블록 쌓기", "미장 바탕 처리"],
+    "MATERIAL_CARRY": ["자재 분류", "안전 운반", "현장 정리"],
+    "GENERAL": ["현장 정리", "안전 수칙 준수", "보조 작업"],
+}
+
 
 def _init_seed() -> None:
     random.seed(SEED)
@@ -68,12 +76,13 @@ def generate_workers(num_workers: int = 60) -> list[dict[str, Any]]:
         prefs = random.sample(TRADES, k=random.randint(1, 2))
         remaining = [t for t in TRADES if t not in prefs]
         excluded = random.sample(remaining, k=random.randint(0, 1))
-        state = WorkerState.READY if random.random() < 0.55 else WorkerState.INACTIVE
+        state = WorkerState.READY if random.random() < 0.78 else WorkerState.INACTIVE
         dispatched = random.randint(0, 60)
         # 성실도 다양화: 대부분 완료율 높음, 일부 낮음
         completed = dispatched if random.random() < 0.8 else max(0, dispatched - random.randint(1, 10))
         worker = build_worker(
             user_id=f"seed-user-{i:03d}",
+            worker_id=f"DEMO-WORKER-{i + 1:03d}",
             name=_fake.name(),
             phone=_fake.numerify("010-####-####"),
             office_id=office_id,
@@ -84,6 +93,16 @@ def generate_workers(num_workers: int = 60) -> list[dict[str, Any]]:
             region=random.choice(REGIONS),
             desired_daily_wage=random.randrange(130000, 240000, 5000),
             certifications=random.sample(CERTIFICATIONS, k=random.randint(0, 2)),
+            abilities=list(dict.fromkeys(
+                ability
+                for trade in prefs
+                for ability in random.sample(ABILITY_BY_TRADE[trade], k=random.randint(1, 2))
+            )),
+            introduction=random.choice([
+                "안전 수칙을 우선하며 맡은 작업을 끝까지 책임집니다.",
+                "여러 현장에서 조원들과 협업한 경험이 있습니다.",
+                "작업 전 도면과 현장 조건을 꼼꼼히 확인합니다.",
+            ]),
             state=state,
             completed_count=completed,
             dispatched_count=dispatched,

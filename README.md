@@ -194,6 +194,8 @@ Amazon Bedrock Knowledge Base 검색과 Q-Net 공식 확인 두 읽기 도구만
 Agent는 짧은 `AgentReportDraft` 근거 설명만 작성한다. 판정, Q-Net 원본 필드,
 evidence type과 citation은 Lambda가 실제 도구 반환값에서 주입하고 다시 검증한다. 웹 화면에는
 Markdown 제목·목록·하이퍼링크를 안전하게 렌더링하고 내부 NCS 코드와 보고서 ID를 노출하지 않는다.
+추천 자격증 이름은 Q-Net 공식 상세 페이지로 연결하며, 실제 조회된 시행기관·하는 일·응시자격·
+취득방법·시험 일정·수수료만 일반 사용자가 이해할 수 있는 문장으로 표시한다.
 
 근로자 화면에서 생성하는 보고서는 비동기로 실행하고 별도 SSE-KMS S3 버킷에 JSON/Markdown으로 저장한다.
 `SpecReportJobs`에는 보고서 본문이나 지원서 원문을 넣지 않고 소유자·상태·S3 키만 저장한다.
@@ -222,7 +224,16 @@ npm run build
 # KB 포함 전체 AWS 배포·데이터 동기화·Retrieve 검증
 cd ..
 AWS_REGION=ap-northeast-2 STAGE=dev STACK_NAME=crewmate ./scripts/kb/deploy-all.sh
+
+# 시연용 dev DB 전체 초기화 + 72명 근로자/상태별 요청/작업조/이력 생성
+.venv/bin/python scripts/seed/seed_showcase.py \
+  --stack-name crewmate --stage dev --region ap-northeast-2 --confirm-reset dev
 ```
+
+시연 시드는 CloudFormation 출력에서 실제 테이블과 Cognito User Pool을 찾아 실행한다. 8개 코어
+테이블과 Q-Net 캐시·보고서 작업 메타데이터를 초기화하므로 `--confirm-reset`에 대상 stage를
+명시해야 한다. 생성 전 구성만 확인하려면 `--dry-run`을 사용한다. 기본 로그인은
+`worker1`, `office1`, `company1`이며 공통 비밀번호는 `demo1234`다.
 
 일반 SAM 변경만 배포할 때는 `sam build` 후 `sam deploy`를 사용한다. 운영 배포에서는
 `CorsAllowOrigin`을 CloudFront 도메인으로 제한하고 Crew/Report 모델 ID와 리전을 파라미터로 고정한다.
