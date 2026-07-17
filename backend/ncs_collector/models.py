@@ -156,6 +156,11 @@ class QualificationEvidence(StrictModel):
     issuing_organization: str | None = None
     duties: str | None = None
     eligibility: str | None = None
+    acquisition_method: str | None = None
+    exam_schedule: str | None = None
+    fees: str | None = None
+    # Backward-compatible alias for older cached/report payloads. New rendering
+    # uses acquisition_method, exam_schedule, and fees explicitly.
     exam_information: str | None = None
     source_url: str | None = None
     checked_at: str | None = None

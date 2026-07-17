@@ -18,7 +18,7 @@ from ncs_collector.models import QualificationEvidence
 from ncs_collector.text import comparison_key, normalize_text
 
 _ALLOWED_HOSTS = {"q-net.or.kr", "www.q-net.or.kr"}
-_CACHE_SCHEMA_VERSION = 3
+_CACHE_SCHEMA_VERSION = 4
 
 
 def validate_qnet_url(url: str) -> str:
@@ -143,6 +143,38 @@ def _section_text(payload: str, label: str) -> str | None:
     return value or None
 
 
+def _plain_section(
+    payload: str,
+    label: str,
+    stop_labels: tuple[str, ...],
+    *,
+    max_length: int = 3000,
+) -> str | None:
+    """Extract a bounded visible-text section such as a schedule or fee table.
+
+    Q-Net renders these areas as ordinary tables rather than labelled textareas.
+    The remote page is still treated only as untrusted text: scripts/styles are
+    discarded by ``_plain_text`` and no markup or instruction is executed.
+    """
+    text = _plain_text(payload)
+    start = re.search(rf"(?:^|\s){re.escape(label)}(?:\s|$)", text)
+    if not start:
+        return None
+    tail = text[start.end():].strip()
+    end_positions = [
+        match.start()
+        for stop_label in stop_labels
+        if (match := re.search(rf"(?:^|\s){re.escape(stop_label)}(?:\s|$)", tail))
+    ]
+    if end_positions:
+        tail = tail[:min(end_positions)].strip()
+    if not tail:
+        return None
+    if len(tail) > max_length:
+        tail = tail[:max_length].rstrip() + "…"
+    return tail
+
+
 def _qualification_code(payload: str, normalized_name: str) -> str | None:
     """Resolve only an exact Q-Net search result; never connect a similar name."""
     for match in re.finditer(
@@ -246,9 +278,24 @@ class QNetHttpAdapter:
                 _section_text(basic_payload, "응시자격")
                 or _section_text(exam_payload, "응시자격")
             )
-            exam_information = (
+            acquisition_method = (
                 _section_text(exam_payload, "취득방법")
                 or _section_text(exam_payload, "시험정보")
+            )
+            exam_schedule = _plain_section(
+                exam_payload,
+                "시험일정",
+                ("검정형 자격 시험정보", "시험정보", "수수료", "출제경향", "취득방법"),
+            ) or _plain_section(
+                exam_payload,
+                "검정형 자격 시험일정",
+                ("검정형 자격 시험정보", "시험정보", "수수료", "출제경향", "취득방법"),
+            )
+            fees = _plain_section(
+                exam_payload,
+                "수수료",
+                ("출제경향", "공개문제", "취득방법", "출제기준"),
+                max_length=500,
             )
             qualification_status = (
                 _section_text(basic_payload, "시행상태")
@@ -261,7 +308,10 @@ class QNetHttpAdapter:
                 issuing_organization=issuing_organization,
                 duties=duties,
                 eligibility=eligibility,
-                exam_information=exam_information,
+                acquisition_method=acquisition_method,
+                exam_schedule=exam_schedule,
+                fees=fees,
+                exam_information=acquisition_method,
                 source_url=validate_qnet_url(detail_url),
                 checked_at=checked_at,
                 fetch_status="SUCCESS",

@@ -360,16 +360,23 @@ def test_runner_uses_strands_structured_output_model():
 
 
 def test_markdown_hides_ncs_codes_and_uses_clickable_qnet_link():
-    structured = analyze_gap(_applicant(), REPO)
+    applicant = _applicant()
+    applicant.certifications = []
+    structured = analyze_gap(applicant, REPO)
     code = structured.missing_abilities[0].ncs_code
     structured.priority_actions[0].reason = f"직종 요구 NCS 능력 보완 ({code})"
+    qualification_name = structured.missing_core_certification_groups[0].certification_names[0]
     qnet_url = "https://www.q-net.or.kr/official"
     report = build_fallback_report(
         structured,
         {},
-        {"방수기능사": QualificationEvidence(
-            normalized_name="방수기능사",
-            official_name="방수기능사",
+        {qualification_name: QualificationEvidence(
+            normalized_name=qualification_name,
+            official_name=qualification_name,
+            issuing_organization="한국산업인력공단",
+            acquisition_method="필기와 실기 시험",
+            exam_schedule="2026년 정기 기능사 3회 2026.06.08 ~ 2026.06.11 접수",
+            fees="필기 14,500원 · 실기 50,500원",
             source_url=qnet_url,
             checked_at="2026-07-17T00:00:00+09:00",
             fetch_status="SUCCESS",
@@ -379,5 +386,8 @@ def test_markdown_hides_ncs_codes_and_uses_clickable_qnet_link():
     markdown = render_markdown(report)
 
     assert code not in markdown
-    assert f"[Q-Net 공식 페이지]({qnet_url})" in markdown
+    assert f"[{qualification_name}]({qnet_url})" in markdown
+    assert "Q-Net 공식 확인 결과" not in markdown
+    assert "시험 일정: 2026년 정기 기능사 3회" in markdown
+    assert "수수료: 필기 14,500원 · 실기 50,500원" in markdown
     assert report.report_id not in markdown

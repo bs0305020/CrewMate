@@ -30,6 +30,23 @@ def _user_facing(value: object) -> str:
     return re.sub(r"[ \t]{2,}", " ", text).strip()
 
 
+def _qualification_names(report: SpecGapReport) -> list[str]:
+    """Return only rule-backed missing/recommended qualifications in display order."""
+    names: list[str] = []
+    for group in (
+        report.missing_core_certification_groups
+        + report.recommended_certification_groups
+    ):
+        names.extend(group.certification_names)
+    return list(dict.fromkeys(names))
+
+
+def _safe_qnet_url(value: str | None) -> str | None:
+    if value and re.match(r"^https://(?:www\.)?q-net\.or\.kr(?:/|$)", value, re.IGNORECASE):
+        return value
+    return None
+
+
 def build_fallback_report(
     structured: StructuredGapAnalysis,
     kb_results: dict[str, RequirementEvidenceResult],
@@ -202,20 +219,13 @@ def render_markdown(report: SpecGapReport) -> str:
         "## 5. 부족한 핵심 자격 요건",
         f"- {names(report.missing_core_certification_groups)}",
         "",
-        "## 6. 추천 자격",
-        f"- {names(report.recommended_certification_groups)}",
-        "",
-        "## 7. 보유 능력과 부족 능력",
-        f"- 보유: {names(report.matched_abilities, 'ability_name')}",
-        f"- 부족: {names(report.missing_abilities, 'ability_name')}",
-        "",
-        "## 8. 우선 보완 계획",
+        "## 6. 추천 자격증과 취득 안내",
+        f"- 우선 확인할 핵심 자격그룹: {names(report.missing_core_certification_groups)}",
+        f"- 추가로 고려할 추천 자격그룹: {names(report.recommended_certification_groups)}",
     ]
-    lines.extend(
-        f"{item.priority}. {_user_facing(item.item_name)} — {_user_facing(item.reason)}"
-        for item in report.priority_actions
-    )
-    lines.extend(["", "## 9. Q-Net 공식 확인 결과"])
+    qnet_by_name = {
+        comparison_key(item.normalized_name): item for item in report.qnet_evidence
+    }
     status_labels = {
         "SUCCESS": "공식 정보 확인",
         "NAME_MISMATCH": "자격명 확인 필요",
@@ -223,35 +233,73 @@ def render_markdown(report: SpecGapReport) -> str:
         "FAILED": "확인 실패",
         "NOT_FOUND": "공식 페이지 미확인",
     }
-    for item in report.qnet_evidence:
+    for certification_name in _qualification_names(report):
+        item = qnet_by_name.get(comparison_key(certification_name))
+        if item is None:
+            lines.append("")
+            lines.append(f"### {_user_facing(certification_name)}")
+            lines.append("- Q-Net 상세 정보를 불러오지 못했습니다. 자격명을 직접 확인해주세요.")
+            continue
         status = status_labels.get(item.fetch_status, "확인 필요")
-        source = (
-            f"[Q-Net 공식 페이지]({item.source_url})"
-            if item.source_url else "공식 페이지 확인 필요"
+        safe_url = _safe_qnet_url(item.source_url)
+        title = (
+            f"[{_user_facing(certification_name)}]({safe_url})"
+            if safe_url else _user_facing(certification_name)
         )
-        checked = item.checked_at or "확인 시각 없음"
-        lines.append(f"- {_user_facing(item.normalized_name)}: {status} · {source} · {checked}")
-    if not report.qnet_evidence:
-        lines.append("- 확인 결과 없음")
-    lines.extend(["", "## 10. Bedrock Knowledge Base 근거"])
+        lines.extend(["", f"### {title}"])
+        if item.fetch_status != "SUCCESS":
+            lines.append(f"- {status}. Q-Net에서 최신 정보를 직접 확인해주세요.")
+            continue
+        details = (
+            ("시행기관", item.issuing_organization),
+            ("하는 일", item.duties),
+            ("응시자격", item.eligibility),
+            ("취득방법", item.acquisition_method or item.exam_information),
+            ("시험 일정", item.exam_schedule),
+            ("수수료", item.fees),
+        )
+        for label, value in details:
+            if value:
+                lines.append(f"- {label}: {_user_facing(value)}")
+        if not any(value for _, value in details):
+            lines.append("- 자격 상세 내용은 연결된 Q-Net 공식 페이지에서 확인해주세요.")
+    if not _qualification_names(report):
+        lines.append("- 현재 추가로 추천할 자격증이 없습니다.")
+    lines.extend([
+        "",
+        "## 7. 보유 능력과 부족 능력",
+        f"- 보유: {names(report.matched_abilities, 'ability_name')}",
+        f"- 부족: {names(report.missing_abilities, 'ability_name')}",
+        "",
+        "## 8. 우선 보완 계획",
+    ])
+    lines.extend(
+        f"{item.priority}. {_user_facing(item.item_name)} — {_user_facing(item.reason)}"
+        for item in report.priority_actions
+    )
+    lines.extend(["", "## 9. Bedrock Knowledge Base 근거"])
     lines.extend(
         f"- {_user_facing(item.item_name)}: {_user_facing(item.reason)}"
         for item in report.knowledge_base_evidence
     )
     if not report.knowledge_base_evidence:
         lines.append("- 검색 결과 없음")
-    lines.extend(["", "## 11. 근거 및 출처"])
+    lines.extend(["", "## 10. 근거 및 출처"])
+    citation_count = 0
     for item in report.citations:
-        if item.source_type == "QNET" and item.source_url:
-            source = f"[Q-Net 공식 페이지]({item.source_url})"
+        if item.source_type == "QNET":
+            # Q-Net links are placed directly on the recommended certification
+            # names above, so do not repeat a raw official-result dump here.
+            continue
         elif item.source_url and str(item.source_url).startswith(("http://", "https://")):
             source = f"[원문 보기]({item.source_url})"
         else:
             source = "내부 기준 문서"
         lines.append(f"- {_user_facing(item.item_name)}: {source}")
-    if not report.citations:
+        citation_count += 1
+    if citation_count == 0:
         lines.append("- 연결된 외부 출처 없음")
-    lines.extend(["", "## 12. 주의사항과 확인 필요 항목"])
+    lines.extend(["", "## 11. 주의사항과 확인 필요 항목"])
     lines.extend(f"- 충돌: {_user_facing(item)}" for item in report.conflicts)
     lines.extend(f"- 한계: {_user_facing(item)}" for item in report.limitations)
     lines.extend(f"- 확인 필요: {_user_facing(item)}" for item in report.human_review_items)

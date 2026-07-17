@@ -118,7 +118,7 @@ def test_15_qnet_cache_hit_avoids_web():
         "source_url": QNET_URL,
         "checked_at": "2026-01-01T00:00:00+00:00",
         "fetch_status": "SUCCESS",
-        "schema_version": 3,
+        "schema_version": 4,
         "expires_at": int(time.time()) + 60,
     })
     result = QNetQualificationService(NeverWeb(), DynamoQualificationCache(table=table)).fetch_qnet_qualification("방수기능사", QNET_URL)
@@ -284,6 +284,10 @@ class FakeQNetOpener:
             )
         else:
             payload = (
+                '<h3>시험일정</h3><table><tr><td>2026년 정기 기능사 3회</td>'
+                '<td>2026.06.08 ~ 2026.06.11 접수</td></tr></table>'
+                '<h3>시험정보</h3><h4>수수료</h4><table><tr><td>필기 14,500원</td>'
+                '<td>실기 50,500원</td></tr></table><h4>출제경향</h4>'
                 '<b class="contTit1">취득방법</b><textarea>필기와 실기 시험</textarea>'
                 "<b>응시자격</b><textarea>제한 없음</textarea>"
             )
@@ -301,6 +305,9 @@ def test_34_qnet_http_adapter_resolves_exact_name_and_detail_fields():
     assert evidence.status == "시행중"
     assert evidence.duties == "방수 시공 작업을 수행한다."
     assert evidence.eligibility == "제한 없음"
+    assert evidence.acquisition_method == "필기와 실기 시험"
+    assert "2026년 정기 기능사 3회" in evidence.exam_schedule
+    assert evidence.fees == "필기 14,500원 실기 50,500원"
     assert "id=crf00503" in evidence.source_url
     assert len(opener.urls) == 3
 

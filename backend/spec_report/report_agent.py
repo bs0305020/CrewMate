@@ -120,12 +120,21 @@ def _compact_qnet_result(result: QualificationEvidence) -> dict[str, Any]:
         "error": result.error,
         "confirmedFields": [
             field
-            for field in ("issuingOrganization", "duties", "eligibility", "examInformation")
+            for field in (
+                "issuingOrganization",
+                "duties",
+                "eligibility",
+                "acquisitionMethod",
+                "examSchedule",
+                "fees",
+            )
             if getattr(result, {
                 "issuingOrganization": "issuing_organization",
                 "duties": "duties",
                 "eligibility": "eligibility",
-                "examInformation": "exam_information",
+                "acquisitionMethod": "acquisition_method",
+                "examSchedule": "exam_schedule",
+                "fees": "fees",
             }[field])
         ],
     }

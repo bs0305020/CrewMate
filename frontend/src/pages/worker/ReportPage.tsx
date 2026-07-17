@@ -24,6 +24,9 @@ export default function ReportPage() {
   const [targetTrade, setTargetTrade] = useState(TARGET_OPTIONS[0]);
   const [result, setResult] = useState<SpecReportResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMode, setLoadingMode] = useState<'GENERATING' | 'OPENING' | null>(
+    () => localStorage.getItem(LAST_REPORT_JOB_KEY) ? 'GENERATING' : null,
+  );
   const [jobId, setJobId] = useState<string | null>(() => localStorage.getItem(LAST_REPORT_JOB_KEY));
   const [savedReports, setSavedReports] = useState<SpecReportJobSummary[]>([]);
 
@@ -67,6 +70,7 @@ export default function ReportPage() {
           setJobId(null);
         }
         setLoading(false);
+        setLoadingMode(null);
         stopPolling();
         loadSavedReports();
         return;
@@ -79,15 +83,18 @@ export default function ReportPage() {
           status: 'COMPLETED',
         });
         setLoading(false);
+        setLoadingMode(null);
         stopPolling();
       } else if (response.data.status === 'FAILED') {
         setLoading(false);
+        setLoadingMode(null);
         localStorage.removeItem(LAST_REPORT_JOB_KEY);
         setJobId(null);
         stopPolling();
         toast.error(response.data.error?.message || '보고서 생성에 실패했습니다.');
       } else {
         setLoading(true);
+        setLoadingMode((current) => current || 'GENERATING');
       }
     };
 
@@ -107,6 +114,7 @@ export default function ReportPage() {
   const generate = async () => {
     if (!worker) return;
     setLoading(true);
+    setLoadingMode('GENERATING');
     setResult(null);
     const payload: SpecReportRequest = {
       targetTrade,
@@ -122,6 +130,7 @@ export default function ReportPage() {
       toast.success('보고서 생성을 시작했습니다. 다른 화면을 이용해도 계속 진행됩니다.');
     } else {
       setLoading(false);
+      setLoadingMode(null);
       toast.error(response.error.message);
     }
   };
@@ -131,6 +140,7 @@ export default function ReportPage() {
     localStorage.setItem(LAST_REPORT_JOB_KEY, saved.reportId);
     setResult(null);
     setLoading(true);
+    setLoadingMode('OPENING');
     setJobId(saved.reportId);
   };
 
@@ -155,7 +165,7 @@ export default function ReportPage() {
           </div>
           <button onClick={generate} disabled={loading || !worker}
             className="w-full bg-green-600 text-white px-6 py-2.5 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50">
-            {loading ? '보고서 생성 중...' : result ? '새 보고서 생성' : '보고서 생성'}
+            {loading ? (loadingMode === 'OPENING' ? '보고서 여는 중...' : '보고서 생성 중...') : result ? '새 보고서 생성' : '보고서 생성'}
           </button>
         </div>
         <div className="mt-4 grid md:grid-cols-2 gap-3 text-xs">
@@ -194,7 +204,7 @@ export default function ReportPage() {
       </section>
 
       {loading && (
-        <ReportSkeleton />
+        <ReportSkeleton mode={loadingMode || 'GENERATING'} />
       )}
 
       {result && (
@@ -260,12 +270,19 @@ function Metric({ label, value, tone = 'green' }: { label: string; value: string
   );
 }
 
-function ReportSkeleton() {
+function ReportSkeleton({ mode }: { mode: 'GENERATING' | 'OPENING' }) {
+  const opening = mode === 'OPENING';
   return (
-    <div className="space-y-3" aria-label="보고서 생성 중">
+    <div className="space-y-3" aria-label={opening ? '보고서 여는 중' : '보고서 생성 중'}>
       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-        <p className="text-sm font-medium text-green-800">보고서를 생성하고 있습니다</p>
-        <p className="text-xs text-green-700 mt-1">이 화면을 벗어나도 작업은 계속되며, 돌아오면 자동으로 결과를 불러옵니다.</p>
+        <p className="text-sm font-medium text-green-800">
+          {opening ? '저장된 보고서를 여는 중입니다' : '보고서를 생성하고 있습니다'}
+        </p>
+        <p className="text-xs text-green-700 mt-1">
+          {opening
+            ? '저장된 보고서 내용을 안전하게 불러오고 있습니다.'
+            : '이 화면을 벗어나도 작업은 계속되며, 돌아오면 자동으로 결과를 불러옵니다.'}
+        </p>
       </div>
       <div className="grid grid-cols-3 gap-2">
         {[0, 1, 2].map((item) => <div key={item} className="h-20 rounded-lg bg-gray-100 animate-pulse" />)}
